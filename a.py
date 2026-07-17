@@ -8,7 +8,7 @@ from agent import run_agent
 
 app = FastAPI()
 
-# HTTP 路由
+# ========== HTTP 路由 ==========
 @app.get("/")
 async def hello():
     return {"message": "QQ Bot Agent is running! (WebSocket service is active)"}
@@ -19,10 +19,10 @@ async def health():
 
 @app.post("/webhook")
 async def webhook(request: Request):
+    """HTTP 上报备用路由"""
     try:
         data = await request.json()
         print(f"Received webhook: {data}")
-        # 如果用户消息中有 message 字段，调用 Agent
         if data and data.get("post_type") == "message":
             user_input = data.get("message", "")
             if isinstance(user_input, list):
@@ -38,7 +38,7 @@ async def webhook(request: Request):
         print(f"❌ webhook 处理失败: {e}")
         return [], 200
 
-# WebSocket 路由
+# ========== WebSocket 路由 ==========
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -46,9 +46,10 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             data = await websocket.receive_text()
-            print(f"📨 收到 WebSocket 消息：{data}")
+            print(f"📨 收到 WebSocket 消息：{data[:200]}...")
             try:
                 msg = json.loads(data)
+                # 处理消息事件
                 if msg.get("post_type") == "message":
                     user_input = msg.get("message", "")
                     if isinstance(user_input, list):
@@ -58,10 +59,17 @@ async def websocket_endpoint(websocket: WebSocket):
                                 text_parts.append(seg.get("data", {}).get("text", ""))
                         user_input = "".join(text_parts)
                     reply = run_agent(user_input) if user_input else "请说点什么"
-                    response = [{"type": "text", "data": {"text": reply}}]
-                    await websocket.send_text(json.dumps(response))
+                    # 直接返回纯文本（不包装为数组）
+                    await websocket.send_text(reply)
                     print(f"✅ 已回复：{reply[:50]}...")
+                else:
+                    # 对非消息事件（如心跳、生命周期），返回空字符串保持连接
+                    await websocket.send_text("")
+                    print(f"ℹ️ 已响应非消息事件")
             except json.JSONDecodeError:
                 print("⚠️ 无法解析 JSON")
+                await websocket.send_text("消息格式错误")
     except WebSocketDisconnect:
         print("🔌 WebSocket 客户端已断开")
+    except Exception as e:
+        print(f"❌ WebSocket 异常：{e}")
