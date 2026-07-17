@@ -1,4 +1,4 @@
-from flask import Flask, request
+from flask import Flask
 import threading
 import subprocess
 import os
@@ -21,19 +21,7 @@ def test():
     else:
         return "VOLC_ACCESS_KEY is NOT set"
 
-# ========== 新增：接收 NapCat HTTP 上报 ==========
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    """接收 NapCat 的 HTTP 上报消息"""
-    data = request.get_json()
-    print(f"Received webhook: {data}")
-    
-    # 可以在这里调用 run_agent 处理消息，并返回回复
-    # from agent import run_agent
-    # reply = run_agent(...)
-    # return {"reply": reply}
-    
-    return {"status": "ok"}
+# 注意：/webhook 路由已迁移到 a.py，这里不再重复定义
 
 def run_bot():
     # 启动 QQ 机器人 WebSocket 服务
