@@ -3,6 +3,7 @@ import json
 import websockets
 import sys
 import os
+import ast
 
 # 添加当前目录到 Python 路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -10,13 +11,13 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from agent import run_agent
 
 # ========== 配置 ==========
-HOST = "127.0.0.1"
+HOST = "0.0.0.0"
 PORT = 8765
 BOT_QQ = 1257934564  # 你的机器人 QQ 号
 
-print(f"🤖 QQ Bot WebSocket 服务启动中...")
-print(f"📡 监听地址：ws://{HOST}:{PORT}")
-print(f"🤖 机器人 QQ：{BOT_QQ}")
+print(f"🤖 QQ Bot WebSocket 服务启动中...", flush=True)
+print(f"📡 监听地址：ws://{HOST}:{PORT}", flush=True)
+print(f"🤖 机器人 QQ：{BOT_QQ}", flush=True)
 
 
 # ========== 检查是否被 @ ==========
@@ -46,6 +47,21 @@ def extract_text_without_at(message_data: dict) -> str:
     return "".join(text_parts).strip()
 
 
+# ========== 尝试将字符串解析为列表 ==========
+def try_parse_list(content):
+    """如果 content 是类似 "['msg1', 'msg2']" 的字符串，尝试解析为列表"""
+    if isinstance(content, str):
+        stripped = content.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            try:
+                parsed = ast.literal_eval(stripped)
+                if isinstance(parsed, list):
+                    return parsed
+            except (SyntaxError, ValueError):
+                pass
+    return content
+
+
 # ========== 处理单条消息 ==========
 async def handle_message(message_data: dict):
     """处理消息，返回 (回复内容, 消息类型, 群号/用户ID, 调用者QQ)"""
@@ -63,77 +79,87 @@ async def handle_message(message_data: dict):
     if not user_input:
         return "请告诉我你的需求，比如：给我10个随机数 或 生成战报", message_type, group_id, user_id
 
-    print(f"📩 收到群消息：{user_input}")
+    print(f"📩 收到群消息：{user_input}", flush=True)
 
     try:
         result = await asyncio.to_thread(run_agent, user_input)
+        result = try_parse_list(result)
         return result, message_type, group_id, user_id
     except Exception as e:
         error_msg = f"❌ 处理出错：{str(e)}"
-        print(error_msg)
+        print(error_msg, flush=True)
         return error_msg, message_type, group_id, user_id
 
 
 # ========== WebSocket 服务端 ==========
 async def websocket_handler(websocket):
-    print(f"🔗 客户端已连接：{websocket.remote_address}")
+    print(f"🔗 客户端已连接：{websocket.remote_address}", flush=True)
 
     try:
         async for message in websocket:
-            print(f"📨 收到原始消息：{message[:200]}...")
+            print(f"📨 收到原始消息：{message[:200]}...", flush=True)
             try:
                 data = json.loads(message)
             except json.JSONDecodeError:
-                print(f"⚠️ 无法解析 JSON")
+                print(f"⚠️ 无法解析 JSON", flush=True)
                 continue
 
             if data.get("post_type") == "meta_event":
                 continue
 
-            # 解包4个返回值
             reply_content, msg_type, group_id, user_id = await handle_message(data)
             if reply_content is None:
                 continue
 
-            # 构造回复
+            # 强制转换为列表
+            if isinstance(reply_content, str):
+                messages_to_send = [reply_content]
+            elif isinstance(reply_content, list):
+                messages_to_send = reply_content
+            else:
+                messages_to_send = [str(reply_content)]
+
             if msg_type == "group" and group_id:
-                # 群聊：@ 调用者 + 回复内容
-                message_segments = [
-                    {"type": "at", "data": {"qq": user_id}},
-                    {"type": "text", "data": {"text": " " + reply_content}}
-                ]
-                reply_data = {
-                    "action": "send_group_msg",
-                    "params": {
-                        "group_id": group_id,
-                        "message": message_segments
+                for idx, msg in enumerate(messages_to_send):
+                    # 🔥 修改：在消息内容前加换行符，让 @ 和内容分开
+                    message_segments = [
+                        {"type": "at", "data": {"qq": user_id}},
+                        {"type": "text", "data": {"text": "\n" + msg}}
+                    ]
+                    reply_data = {
+                        "action": "send_group_msg",
+                        "params": {
+                            "group_id": group_id,
+                            "message": message_segments
+                        }
                     }
-                }
+                    await websocket.send(json.dumps(reply_data))
+                    if idx < len(messages_to_send) - 1:
+                        await asyncio.sleep(0.3)
+                print(f"✅ 已回复 {len(messages_to_send)} 条消息", flush=True)
+
             elif msg_type == "private":
                 reply_data = {
                     "action": "send_private_msg",
                     "params": {
                         "user_id": user_id,
-                        "message": reply_content
+                        "message": "\n".join(messages_to_send)
                     }
                 }
-            else:
-                continue
-
-            await websocket.send(json.dumps(reply_data))
-            print(f"✅ 已回复（@ {user_id}）")
+                await websocket.send(json.dumps(reply_data))
+                print(f"✅ 已私聊回复（{user_id}）", flush=True)
 
     except websockets.exceptions.ConnectionClosed:
-        print(f"🔌 客户端已断开")
+        print(f"🔌 客户端已断开", flush=True)
     except Exception as e:
-        print(f"❌ 连接出错：{e}")
+        print(f"❌ 连接出错：{e}", flush=True)
 
 
 # ========== 启动 ==========
 async def main():
     async with websockets.serve(websocket_handler, HOST, PORT):
-        print(f"✅ WebSocket 服务已启动，监听 ws://{HOST}:{PORT}")
-        print("等待 NapCat 连接...")
+        print(f"✅ WebSocket 服务已启动，监听 ws://{HOST}:{PORT}", flush=True)
+        print("等待 NapCat 连接...", flush=True)
         await asyncio.Future()
 
 

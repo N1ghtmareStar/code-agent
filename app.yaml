@@ -1,3 +1,8 @@
+name: code-agent
+app_id: da_KwGIWtMUg8pB
+owner: n1ghtmarestar
+package: sha256:43d1cb322e25e1e9ff1f52b325279f7fedb483441c4b6e7f19b594616c81ad77
+kind: wasmer.io/App.v0
 annotations:
   shipitcli.com/config:
     commands: {}
