@@ -59,16 +59,30 @@ async def websocket_endpoint(websocket: WebSocket):
                                 text_parts.append(seg.get("data", {}).get("text", ""))
                         user_input = "".join(text_parts)
                     reply = run_agent(user_input) if user_input else "请说点什么"
-                    # 直接返回纯文本（不包装为数组）
-                    await websocket.send_text(reply)
+                    
+                    # 🔥 返回 OneBot 标准 API 响应格式
+                    response_data = {
+                        "status": "ok",
+                        "retcode": 0,
+                        "data": {
+                            "message": reply
+                        },
+                        "echo": msg.get("echo")  # 如果有 echo 字段，原样返回
+                    }
+                    await websocket.send_text(json.dumps(response_data))
                     print(f"✅ 已回复：{reply[:50]}...")
                 else:
-                    # 对非消息事件（如心跳、生命周期），返回空字符串保持连接
-                    await websocket.send_text("")
+                    # 对非消息事件（如心跳、生命周期），返回空响应保持连接
+                    await websocket.send_text(json.dumps({"status": "ok"}))
                     print(f"ℹ️ 已响应非消息事件")
             except json.JSONDecodeError:
                 print("⚠️ 无法解析 JSON")
-                await websocket.send_text("消息格式错误")
+                await websocket.send_text(json.dumps({
+                    "status": "failed",
+                    "retcode": 100,
+                    "data": None,
+                    "message": "JSON 解析失败"
+                }))
     except WebSocketDisconnect:
         print("🔌 WebSocket 客户端已断开")
     except Exception as e:
