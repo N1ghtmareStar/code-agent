@@ -1,0 +1,24 @@
+[package]
+entrypoint = "start"
+
+[dependencies]
+"python/python" = "=3.13.5"
+"wasmer/bash" = "=1.0.25"
+
+[fs]
+"/app" = "."
+"/opt/venv" = ".venv"
+
+[[command]]
+name = "start"
+module = "python/python:python"
+runner = "wasi"
+
+[command.annotations.wasi]
+cwd = "/app"
+main-args = ["-m", "gunicorn", "--bind", "0.0.0.0:8080", "app:app"]
+env = [
+    "PYTHONEXECUTABLE=/bin/python",
+    "PYTHONPATH=/app:/opt/venv/lib/python3.13/site-packages",
+    "HOME=/app",
+]

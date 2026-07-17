@@ -1,8 +1,8 @@
-name: Weekly Match Report
+name: Daily Match Report
 
 on:
   schedule:
-    - cron: '0 10 * * 0'
+    - cron: '0 1 * * *'
   workflow_dispatch:
 
 jobs:
