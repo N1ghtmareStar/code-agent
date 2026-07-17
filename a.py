@@ -40,6 +40,11 @@ async def webhook(request: Request):
             # 调用 Agent 处理
             try:
                 reply = run_agent(user_input) if user_input else "请说点什么"
+                
+                # 🔥 截断过长回复（避免 Wasmer 内存超限）
+                if len(reply) > 1500:
+                    reply = reply[:1500] + "\n\n... 回复过长已截断，请查看完整日志。"
+                
                 print(f"🤖 Agent 回复: {reply[:100]}...")
                 # 返回 OneBot 标准格式（数组）
                 return [{"type": "text", "data": {"text": reply}}]
