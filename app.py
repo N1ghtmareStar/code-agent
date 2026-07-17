@@ -35,3 +35,5 @@ if __name__ == '__main__':
     # 启动 Flask 服务，监听 0.0.0.0 和 Wasmer 分配的端口
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port)
+# 让 Wasmer 的 'a:app' 配置也能工作
+a = app
