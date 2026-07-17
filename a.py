@@ -20,8 +20,27 @@ async def health():
 async def webhook(request: Request):
     """接收 NapCat 的 HTTP 上报消息，调用 run_agent 并返回回复"""
     try:
-        # 获取原始 JSON 数据
-        data = await request.json()
+        # 🔥 先获取原始请求体，自行解码（避免编码问题）
+        raw_body = await request.body()
+        print(f"📨 Raw body (bytes): {raw_body}")
+        
+        # 尝试多种解码方式
+        decoded = None
+        for encoding in ['utf-8', 'gbk', 'gb2312', 'latin-1']:
+            try:
+                decoded = raw_body.decode(encoding)
+                print(f"✅ 成功使用 {encoding} 解码")
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if decoded is None:
+            # 所有编码都失败，忽略错误字符
+            decoded = raw_body.decode('utf-8', errors='ignore')
+            print("⚠️ 使用 utf-8 忽略错误解码")
+        
+        print(f"📨 Decoded body: {decoded}")
+        data = json.loads(decoded)
         print(f"✅ Received webhook: {data}")
 
         # 只处理消息事件
@@ -57,6 +76,9 @@ async def webhook(request: Request):
         # 非消息事件，返回空响应
         return [], 200
 
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON 解析失败: {e}")
+        return [], 400
     except Exception as e:
         print(f"❌ webhook 处理失败: {e}")
         import traceback
