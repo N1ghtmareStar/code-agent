@@ -264,7 +264,7 @@ def load_school_data(file_path: str, school_keyword: str) -> Dict:
     return data
 
 # ============================================================
-# 2. 明细格式化（单行分隔符，项目符号开头，无缩进）
+# 2. 明细格式化（单行分隔符，项目符号开头，两个空格缩进）
 # ============================================================
 
 def format_details(raw_list: List[str]) -> str:
@@ -299,9 +299,9 @@ def format_details(raw_list: List[str]) -> str:
                         rank = match.group(2)
                         points = match.group(3)
                         score_str = f"+{score}" if float(score) >= 0 else str(score)
-                        result_lines.append(f"• {name} | {rank}位 | {points}（{score_str}）")
+                        result_lines.append(f"•  {name} | {rank}位 | {points}（{score_str}）")
                     else:
-                        result_lines.append(f"• {entry}（{score}）")
+                        result_lines.append(f"•  {entry}（{score}）")
             else:
                 for entry in player_parts:
                     match = re.search(r'(.+?)\s*#(\d)\s*(\d+)', entry)
@@ -309,25 +309,26 @@ def format_details(raw_list: List[str]) -> str:
                         name = match.group(1).strip()
                         rank = match.group(2)
                         points = match.group(3)
-                        result_lines.append(f"• {name} | {rank}位 | {points}")
+                        result_lines.append(f"•  {name} | {rank}位 | {points}")
                     else:
-                        result_lines.append(f"• {entry}")
+                        result_lines.append(f"•  {entry}")
             current_scores = []
             continue
 
+        # 处理剩余未匹配的情况（兜底）
         if '#' in item:
-            match = re.search(r'(.+?)\s*#(\d)\s*(\d+)', entry)
+            match = re.search(r'(.+?)\s*#(\d)\s*(\d+)', item)
             if match:
                 name = match.group(1).strip()
                 rank = match.group(2)
                 points = match.group(3)
                 score = current_scores[0] if current_scores else "?"
                 score_str = f"+{score}" if float(score) >= 0 else str(score)
-                result_lines.append(f"• {name} | {rank}位 | {points}（{score_str}）")
+                result_lines.append(f"•  {name} | {rank}位 | {points}（{score_str}）")
                 if current_scores:
                     current_scores = current_scores[1:]
             else:
-                result_lines.append(f"• {item}")
+                result_lines.append(f"•  {item}")
 
     if not result_lines:
         return "暂无选手明细"
@@ -350,7 +351,7 @@ def find_file(filename: str) -> str:
     return filename
 
 # ============================================================
-# 4. 战报生成（返回消息列表，删除“本周顺位分布”）
+# 4. 战报生成（返回消息列表）
 # ============================================================
 
 def generate_weekly_report(
@@ -419,7 +420,7 @@ def generate_weekly_report(
     east_detail = format_details(this_week['east_detail_raw'])
     south_detail = format_details(this_week['south_detail_raw'])
 
-    # ===== 消息1：战报头 + 概览 =====
+    # ===== 消息1：战报头 + 概览（所有项目符号后统一两个空格） =====
     msg1 = f"""📊 第五届联合杯 · {week_title}
 
 🏫 参赛学校：{school_name}
@@ -427,14 +428,14 @@ def generate_weekly_report(
 
 ─────────────────────────────
 📈 本周战况：
-• 上周累计分数：{last_total:.1f} 分
-• 本周新增分数：{delta_total:+.1f} 分
-• 当前累计分数：{this_week['total_score']:.1f} 分
-• 当前排名：第 {this_week['final_rank']} 名（{rank_desc}）"""
+•  上周累计分数：{last_total:.1f} 分
+•  本周新增分数：{delta_total:+.1f} 分
+•  当前累计分数：{this_week['total_score']:.1f} 分
+•  当前排名：第 {this_week['final_rank']} 名（{rank_desc}）"""
 
     # ===== 消息2：东风赛道 + 顺位 + 明细 =====
     msg2 = f"""🀀 东风赛道：{this_week['east_score']:.1f} 分（{delta_east:+.1f} 分，排名 {this_week['east_rank']}）
-• 顺位：1位{this_week['east_rank_1']}次 / 2位{this_week['east_rank_2']}次 / 3位{this_week['east_rank_3']}次 / 4位{this_week['east_rank_4']}次
+•  顺位：1位{this_week['east_rank_1']}次 / 2位{this_week['east_rank_2']}次 / 3位{this_week['east_rank_3']}次 / 4位{this_week['east_rank_4']}次
 
 ─────────────────────────────
 📌 本周明细（东风）：
@@ -442,7 +443,7 @@ def generate_weekly_report(
 
     # ===== 消息3：半庄赛道 + 顺位 + 明细 =====
     msg3 = f"""🀁 半庄赛道：{this_week['south_score']:.1f} 分（{delta_south:+.1f} 分，排名 {this_week['south_rank']}）
-• 顺位：1位{this_week['south_rank_1']}次 / 2位{this_week['south_rank_2']}次 / 3位{this_week['south_rank_3']}次 / 4位{this_week['south_rank_4']}次
+•  顺位：1位{this_week['south_rank_1']}次 / 2位{this_week['south_rank_2']}次 / 3位{this_week['south_rank_3']}次 / 4位{this_week['south_rank_4']}次
 
 ─────────────────────────────
 📌 本周明细（半庄）：
@@ -465,4 +466,5 @@ if __name__ == "__main__":
     for i, msg in enumerate(reports, 1):
         print(f"消息{i}:\n{msg}\n")
 
+# 供外部调用的别名（保持兼容）
 generate_weekly_report_text = generate_weekly_report
