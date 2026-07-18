@@ -13,7 +13,7 @@ from agent import run_agent
 # ========== 配置 ==========
 HOST = "0.0.0.0"
 PORT = 8765
-BOT_QQ = 1257934564  # 你的机器人 QQ 号
+BOT_QQ = 1257934564  # 你的机器人 QQ 号（务必填写真实号码）
 
 print(f"🤖 QQ Bot WebSocket 服务启动中...", flush=True)
 print(f"📡 监听地址：ws://{HOST}:{PORT}", flush=True)
@@ -120,25 +120,48 @@ async def websocket_handler(websocket):
                 messages_to_send = [str(reply_content)]
 
             if msg_type == "group" and group_id:
-                for idx, msg in enumerate(messages_to_send):
-                    # 🔥 修改：在消息内容前加换行符，让 @ 和内容分开
-                    message_segments = [
-                        {"type": "at", "data": {"qq": user_id}},
-                        {"type": "text", "data": {"text": "\n" + msg}}
-                    ]
-                    reply_data = {
-                        "action": "send_group_msg",
-                        "params": {
-                            "group_id": group_id,
-                            "message": message_segments
+                # ---- 新增：合并转发发送逻辑 ----
+                # 1. 先发送一条 @ 提醒（不含具体内容）
+                at_segments = [
+                    {"type": "at", "data": {"qq": user_id}},
+                    {"type": "text", "data": {"text": " 您要的战报已生成，请查看下方聊天记录 👇"}}
+                ]
+                at_reply = {
+                    "action": "send_group_msg",
+                    "params": {
+                        "group_id": group_id,
+                        "message": at_segments
+                    }
+                }
+                await websocket.send(json.dumps(at_reply))
+                await asyncio.sleep(0.5)  # 短暂延迟，确保提醒先到达
+
+                # 2. 构建合并转发节点
+                forward_nodes = []
+                for msg in messages_to_send:
+                    node = {
+                        "type": "node",
+                        "data": {
+                            "name": "战报机器人",          # 聊天记录中显示的名称
+                            "uin": str(BOT_QQ),            # 必须为真实机器人 QQ 号
+                            "content": msg                 # 每条消息的纯文本内容
                         }
                     }
-                    await websocket.send(json.dumps(reply_data))
-                    if idx < len(messages_to_send) - 1:
-                        await asyncio.sleep(0.3)
-                print(f"✅ 已回复 {len(messages_to_send)} 条消息", flush=True)
+                    forward_nodes.append(node)
+
+                # 3. 发送合并转发消息
+                forward_data = {
+                    "action": "send_group_forward_msg",
+                    "params": {
+                        "group_id": group_id,
+                        "messages": forward_nodes
+                    }
+                }
+                await websocket.send(json.dumps(forward_data))
+                print(f"✅ 已发送合并转发（共 {len(messages_to_send)} 条消息）", flush=True)
 
             elif msg_type == "private":
+                # 私聊仍使用普通文本（按原逻辑，多消息用换行拼接）
                 reply_data = {
                     "action": "send_private_msg",
                     "params": {
