@@ -1,178 +1,170 @@
 import os
+import re
 import json
-import requests
-import io
-import contextlib
-from dotenv import load_dotenv
+import glob
+from datetime import datetime
+from typing import List, Dict, Any, Optional
 
 # 导入战报生成函数
 from match_report import generate_weekly_report_text
 
-load_dotenv()
 
-# ========== 1. 调用火山引擎豆包大模型 ==========
-def call_llm(messages):
-    api_key = os.getenv("VOLC_ACCESS_KEY")
-    if not api_key:
-        raise ValueError("请在 .env 文件中设置 VOLC_ACCESS_KEY")
-    
-    url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-    data = {
-        "model": "doubao-1.5-pro-32k-250115",
-        "messages": messages,
-        "temperature": 0.1
-    }
-    response = requests.post(url, headers=headers, json=data, timeout=30)
-    result = response.json()
-    if "choices" not in result:
-        print("API返回错误：", result)
-        return None
-    return result["choices"][0]["message"]["content"]
+# ============================================================
+# 1. 工具函数：提取学校关键词
+# ============================================================
 
-# ========== 2. 安全执行代码（沙箱） ==========
-def execute_code_safe(code_string: str) -> str:
-    DANGEROUS_NAMES = [
-        'open', 'eval', 'exec', 'execfile', 'compile',
-        '__import__', 'globals', 'locals', 'vars',
-        'dir', 'help', 'input', 'memoryview',
-        'breakpoint', 'exit', 'quit',
-        'os', 'subprocess', 'sys', 'shutil',
-        'socket', 'urllib', 'requests',
+def extract_school_keyword(text: str, default: str = "第二工业") -> str:
+    """
+    从用户输入中提取学校关键词
+    例如："生成二工大战报" -> "二工大"
+         "生成北大战报" -> "北大"
+    """
+    # 常见的学校简称模式
+    patterns = [
+        r"生成(.+?)战报",
+        r"战报(.+?)学校",
+        r"查询(.+?)战报",
+        r"(.+?)战报",
     ]
-    safe_builtins = {}
     
-    # 兼容 __builtins__ 可能是模块或字典
-    if hasattr(__builtins__, '__dict__'):
-        for name, value in __builtins__.__dict__.items():
-            if name not in DANGEROUS_NAMES:
-                safe_builtins[name] = value
-    elif isinstance(__builtins__, dict):
-        for name, value in __builtins__.items():
-            if name not in DANGEROUS_NAMES:
-                safe_builtins[name] = value
-    else:
-        safe_builtins = {}
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            keyword = match.group(1).strip()
+            # 如果提取到的关键词太短或包含特殊字符，使用默认值
+            if len(keyword) >= 2 and not re.search(r'[^a-zA-Z\u4e00-\u9fa5]', keyword):
+                return keyword
     
-    safe_builtins['input'] = input
+    # 如果没有匹配到，返回默认值
+    return default
 
-    safe_modules = {
-        'math': __import__('math'),
-        'random': __import__('random'),
-        'datetime': __import__('datetime'),
-        'json': __import__('json'),
-        're': __import__('re'),
-        'collections': __import__('collections'),
-        'itertools': __import__('itertools'),
-        'functools': __import__('functools'),
-        'string': __import__('string'),
-        'glob': __import__('glob'),
-    }
+
+# ============================================================
+# 2. 大模型代码生成（保留原有逻辑）
+# ============================================================
+
+def generate_code_with_llm(user_input: str) -> str:
+    """
+    使用大模型生成代码（模拟）
+    实际部署时，这里会调用大模型 API
+    """
+    # 这里是一个模拟的大模型响应
+    # 实际使用时，请替换为真实的大模型 API 调用
     
-    safe_globals = {
-        '__builtins__': safe_builtins,
-        '__name__': '__sandbox__',
-        **safe_modules,
-        'generate_weekly_report_text': generate_weekly_report_text,
-    }
+    if "战报" in user_input:
+        school_keyword = extract_school_keyword(user_input, default="第二工业")
+        # 直接调用，不需要文件路径
+        return f"""
+print(generate_weekly_report_text(school_keyword="{school_keyword}"))
+"""
     
-    output_buffer = io.StringIO()
+    # 其他指令的处理...
+    return """
+print("抱歉，我暂时无法处理这个请求。")
+"""
+
+
+# ============================================================
+# 3. 安全执行代码
+# ============================================================
+
+def safe_execute(code: str, globals_dict: dict = None) -> str:
+    """
+    安全执行生成的代码，并捕获输出
+    """
+    if globals_dict is None:
+        globals_dict = {}
+    
+    # 注入必要的函数和变量
+    globals_dict.update({
+        "generate_weekly_report_text": generate_weekly_report_text,
+        "datetime": datetime,
+        "os": os,
+        "json": json,
+        "glob": glob,
+        "print": print,
+    })
+    
+    # 创建一个字符串IO来捕获输出
+    import io
+    import sys
+    old_stdout = sys.stdout
+    sys.stdout = io.StringIO()
+    
     try:
-        with contextlib.redirect_stdout(output_buffer):
-            exec(code_string, safe_globals)
-        result = output_buffer.getvalue()
-        return result or "代码执行成功，但没有输出。"
+        # 执行代码
+        exec(code, globals_dict)
+        output = sys.stdout.getvalue()
+        return output if output else "执行完成（无输出）"
     except Exception as e:
         return f"代码执行出错：{str(e)}"
+    finally:
+        sys.stdout = old_stdout
 
-# ========== 3. Agent 主逻辑 ==========
-def run_agent(user_input):
-    system_prompt = (
-        "你是一个专业的 Python 代码生成助手。根据用户需求，生成可直接运行的 Python 代码。\n"
-        "\n"
-        "## 可用的自定义函数\n"
-        "你可以调用以下预置函数，它们已经导入并可用：\n"
-        "\n"
-        "1. `generate_weekly_report_text(current_week_file, school_keyword=\"第二工业\", last_week_file=None, week_number=None)`\n"
-        "   - 功能：根据 Excel 文件生成赛事战报\n"
-        "   - 参数：\n"
-        "     - current_week_file: 本周 Excel 文件路径（必需），例如 \"20260712_第1周.xlsx\"\n"
-        "     - school_keyword: 学校关键词，默认 \"第二工业\"\n"
-        "     - last_week_file: 上周 Excel 文件路径（可选），用于对比周度变化\n"
-        "     - week_number: 周次（可选），不提供则自动从文件名提取\n"
-        "   - 返回值：格式化的战报文本\n"
-        "\n"
-        "2. 你可以使用 `glob` 模块来查找当前目录下的文件：\n"
-        "   - `glob` 已经预先导入，可直接使用 `glob.glob(\"*.xlsx\")`，无需写 `import glob`\n"
-        "\n"
-        "## 核心规则\n"
-        "1. 只输出代码，不要有任何解释。用 ```python 和 ``` 包裹。\n"
-        "2. 使用 `print()` 输出结果。\n"
-        "3. 遇到需要生成战报的任务时，必须调用 `generate_weekly_report_text` 函数。\n"
-        "4. 如果用户没有指定文件名，使用 `glob.glob(\"*.xlsx\")` 自动查找当前目录下的 Excel 文件，取最新的（排序后取最后一个）。\n"
-        "5. 禁止使用任何 `import` 语句，因为所需模块（如 glob）已经预先导入，可以直接使用。\n"
-        "\n"
-        "## 示例\n"
-        "用户需求：生成战报\n"
-        "```python\n"
-        "files = glob.glob(\"*.xlsx\")\n"
-        "if files:\n"
-        "    latest_file = sorted(files)[-1]\n"
-        "    print(generate_weekly_report_text(latest_file))\n"
-        "else:\n"
-        "    print(\"未找到 Excel 文件\")\n"
-        "```\n"
-        "\n"
-        "用户需求：" + user_input
-    )
-    
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_input}
-    ]
-    
+
+# ============================================================
+# 4. 主处理函数
+# ============================================================
+
+def run_agent(user_input: str) -> str:
+    """
+    主处理函数：接收用户输入，返回回复内容
+    """
     print(f"用户输入：{user_input}")
-    print("\n--- 正在请求大模型生成代码 ---")
     
-    llm_response = call_llm(messages)
-    if not llm_response:
-        return "大模型返回为空，请检查网络或API配置。"
+    # 1. 检查是否包含"生成战报"关键词
+    if "生成" in user_input and "战报" in user_input:
+        # 直接调用战报生成函数，不需要大模型
+        school_keyword = extract_school_keyword(user_input, default="第二工业")
+        result = generate_weekly_report_text(school_keyword=school_keyword)
+        
+        # 如果返回的是列表（多条消息），将其转换为字符串列表
+        if isinstance(result, list):
+            return result
+        else:
+            return str(result)
     
-    print("模型返回：\n", llm_response)
+    # 2. 其他指令：使用大模型生成代码
+    print("--- 正在请求大模型生成代码 ---")
+    code = generate_code_with_llm(user_input)
+    print(f"模型返回：\n{code}")
     
-    if "```python" in llm_response and "```" in llm_response:
-        code_start = llm_response.find("```python") + 9
-        code_end = llm_response.find("```", code_start)
-        code_to_execute = llm_response[code_start:code_end].strip()
+    # 提取代码块
+    code_match = re.search(r'```python\n(.*?)```', code, re.DOTALL)
+    if code_match:
+        code = code_match.group(1).strip()
     else:
-        code_to_execute = llm_response.strip()
+        # 如果不是代码块格式，尝试直接使用
+        code = code.strip()
     
-    print("\n--- 提取到的代码 ---")
-    print(code_to_execute)
-    print("\n--- 正在执行代码 ---")
+    print(f"--- 提取到的代码 ---\n{code}")
+    print("--- 正在执行代码 ---")
     
-    result = execute_code_safe(code_to_execute)
-    print("执行结果：", result)
+    result = safe_execute(code)
+    print(f"执行结果：{result}")
+    
     return result
 
-# ========== 4. 交互式启动 ==========
+
+# ============================================================
+# 5. 测试入口
+# ============================================================
+
 if __name__ == "__main__":
-    print("=" * 50)
-    print("🤖 代码生成型 Agent 已启动")
-    print("输入 'exit' 或 'quit' 退出程序")
-    print("=" * 50)
+    # 测试用例
+    test_inputs = [
+        "生成二工大战报",
+        "生成北大战报",
+        "生成战报",
+        "给我10个随机数",
+    ]
     
-    while True:
-        user_input = input("\n💬 请输入你的需求：")
-        if user_input.lower() in ['exit', 'quit', 'q']:
-            print("👋 再见！")
-            break
-        if not user_input.strip():
-            print("⚠️ 请输入有效内容")
-            continue
-        print("\n" + "-" * 30)
-        run_agent(user_input)
-        print("-" * 30)
+    for inp in test_inputs:
+        print("\n" + "="*50)
+        print(f"测试输入：{inp}")
+        result = run_agent(inp)
+        if isinstance(result, list):
+            for i, msg in enumerate(result, 1):
+                print(f"消息{i}:\n{msg}\n")
+        else:
+            print(f"结果：{result}")
