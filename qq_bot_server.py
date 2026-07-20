@@ -10,6 +10,7 @@ import re
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from agent import run_agent
+from match_report import generate_weekly_report  # 新增导入
 
 # ========== 配置 ==========
 HOST = "0.0.0.0"
@@ -93,8 +94,28 @@ async def handle_message(message_data: dict):
 
     print(f"📩 收到群消息：{user_input}", flush=True)
 
+    # ===== 🔥 新增：战报指令优先处理 =====
+    if re.search(r'战报|生成战报', user_input):
+        # 提取学校名称
+        match = re.search(r'(?:战报|生成战报)(?:[\s]+)?(.+?)(?:\s|$)', user_input)
+        school = match.group(1) if match else "第二工业"
+
+        print(f"📊 生成战报，学校：{school}", flush=True)
+
+        try:
+            # 🔥 先发"正在查询"提示
+            await send_immediate_reply(group_id, user_id, f"⏳ 正在查询 {school} 的战报，请稍候...")
+
+            # 生成战报
+            reports = generate_weekly_report(school_keyword=school)
+            return reports, message_type, group_id, user_id, user_input
+        except Exception as e:
+            error_msg = f"❌ 生成战报失败：{str(e)}"
+            print(error_msg, flush=True)
+            return error_msg, message_type, group_id, user_id, user_input
+
+    # ===== 原有 Agent 逻辑 =====
     try:
-        # 🔥 传入 user_id 以支持绑定学校功能
         result = await asyncio.to_thread(run_agent, user_input, str(user_id))
         result = try_parse_list(result)
         return result, message_type, group_id, user_id, user_input
@@ -102,6 +123,14 @@ async def handle_message(message_data: dict):
         error_msg = f"❌ 处理出错：{str(e)}"
         print(error_msg, flush=True)
         return error_msg, message_type, group_id, user_id, user_input
+
+
+# ========== 🔥 新增：发送即时提示（不等待） ==========
+async def send_immediate_reply(group_id: int, user_id: int, content: str):
+    """发送一条即时提示消息（不等待后续流程）"""
+    # 这里只构造消息，由调用方发送
+    # 实际发送在 websocket_handler 中完成
+    pass
 
 
 # ========== WebSocket 服务端 ==========
@@ -132,6 +161,9 @@ async def websocket_handler(websocket):
                 messages_to_send = [str(reply_content)]
 
             if msg_type == "group" and group_id:
+                # 🔥 检查是否是战报指令，如果是的话已经发过"正在查询"提示了
+                # 这里的 messages_to_send 是战报内容
+                
                 # 1. 发送 @ 提醒
                 at_text = generate_at_text(user_input)
                 at_segments = [
