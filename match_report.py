@@ -5,6 +5,18 @@ from typing import Dict, List, Optional, Tuple
 
 from arena_fetcher import fetch_weekly_report_data, EAST_RANK_BONUS, SOUTH_RANK_BONUS, get_rounds_for_week, get_latest_completed_rounds
 
+
+def get_prev_rounds(current_rounds: List[int]) -> List[int]:
+    """获取当前轮次对应的上一周轮次"""
+    if not current_rounds:
+        return []
+    min_round = min(current_rounds)
+    if min_round <= 1:
+        return []
+    prev_rounds = [r - 2 for r in current_rounds if r - 2 >= 1]
+    return prev_rounds if prev_rounds else []
+
+
 # ============================================================
 # 别名映射表
 # ============================================================
@@ -177,10 +189,8 @@ def generate_weekly_report(
         school_keyword: 学校关键词
         week_number: 周数（1-4），如果指定则自动计算对应的轮次
         round_numbers: 指定轮次列表，如 [1, 2, 3, 4]
-        last_week_data: 上周数据（用于计算增量）
+        last_week_data: 上周数据（用于计算增量），如果不传则自动获取
         title: 自定义标题，如果不指定则自动生成
-    
-    优先级: round_numbers > week_number > 默认（最新两轮）
     """
     original_keyword = school_keyword
     
@@ -190,7 +200,6 @@ def generate_weekly_report(
     elif week_number is not None:
         target_rounds = get_rounds_for_week(week_number)
     else:
-        # 默认：获取最新已完成的两轮
         target_rounds = get_latest_completed_rounds(2)
     
     try:
@@ -202,22 +211,49 @@ def generate_weekly_report(
     if not school_data:
         return [f"❌ 未找到学校：'{original_keyword}' 未参加第五届联合杯，或学校名称不匹配。"]
     
-    # 上周数据
+    # ---- 获取上周数据 ----
+    if last_week_data is None:
+        prev_rounds = get_prev_rounds(target_rounds)
+        if prev_rounds:
+            try:
+                prev_data = fetch_weekly_report_data(prev_rounds)
+                last_week_data = prev_data
+            except:
+                last_week_data = None
+    
     last_total = 0.0
+    last_final_rank = 0
+    last_east_score = 0.0
+    last_south_score = 0.0
+    
     if last_week_data:
         last_team = find_school_in_arena(last_week_data, school_keyword)
         if last_team and last_team[1]:
             last_total = last_team[1].get("total_score", 0.0)
+            last_final_rank = last_team[1].get("final_rank", 0)
+            last_east_score = last_team[1].get("east", {}).get("total_score", 0.0)
+            last_south_score = last_team[1].get("south", {}).get("total_score", 0.0)
     
+    # ---- 当前数据 ----
     east = school_data.get("east", {})
     south = school_data.get("south", {})
     total_score = school_data.get("total_score", 0.0)
     final_rank = school_data.get("final_rank", 0)
     
+    # 计算增量（本周新增 = 当前累计 - 上周累计）
     delta_total = total_score - last_total
-    delta_east = east.get("total_score", 0.0)
-    delta_south = south.get("total_score", 0.0)
-    rank_desc = "持平"
+    delta_east = east.get("total_score", 0.0) - last_east_score
+    delta_south = south.get("total_score", 0.0) - last_south_score
+    
+    # 排名变化
+    if last_final_rank == 0:
+        rank_desc = "持平"
+    elif final_rank < last_final_rank:
+        rank_desc = f"↑ {last_final_rank - final_rank}"
+    elif final_rank > last_final_rank:
+        rank_desc = f"↓ {final_rank - last_final_rank}"
+    else:
+        rank_desc = "持平"
     
     # 生成标题
     if title:
@@ -233,6 +269,11 @@ def generate_weekly_report(
     east_detail = format_details_from_arena(east_details, EAST_RANK_BONUS)
     south_detail = format_details_from_arena(south_details, SOUTH_RANK_BONUS)
     
+    # 计算本周轮次总分（从 round_scores 中累加当前轮次）
+    east_round_total = sum(score for round_num, score in east.get("round_scores", {}).items() if round_num in target_rounds)
+    south_round_total = sum(score for round_num, score in south.get("round_scores", {}).items() if round_num in target_rounds)
+    
+    # ===== 消息1：总览 =====
     msg1 = f"""📊 第五届联合杯 · {week_title}
 
 🏫 参赛学校：{school_name}
@@ -245,14 +286,18 @@ def generate_weekly_report(
 •  当前累计分数：{total_score:.1f} 分
 •  当前排名：第 {final_rank} 名（{rank_desc}）"""
 
-    msg2 = f"""🀀 东风赛道：{east.get('total_score', 0):.1f} 分（{delta_east:+.1f} 分）
+    # ===== 消息2：东风赛道（累计分 + 本周新增） =====
+    east_total = east.get('total_score', 0.0)
+    msg2 = f"""🀀 东风赛道：{east_total:.1f} 分（{east_round_total:+.1f} 分）
 •  顺位：1位{east.get('rank_1', 0)}次 / 2位{east.get('rank_2', 0)}次 / 3位{east.get('rank_3', 0)}次 / 4位{east.get('rank_4', 0)}次
 
 ─────────────────────────────
 📌 本周明细（东风）：
 {east_detail}"""
 
-    msg3 = f"""🀁 半庄赛道：{south.get('total_score', 0):.1f} 分（{delta_south:+.1f} 分）
+    # ===== 消息3：半庄赛道（累计分 + 本周新增） =====
+    south_total = south.get('total_score', 0.0)
+    msg3 = f"""🀁 半庄赛道：{south_total:.1f} 分（{south_round_total:+.1f} 分）
 •  顺位：1位{south.get('rank_1', 0)}次 / 2位{south.get('rank_2', 0)}次 / 3位{south.get('rank_3', 0)}次 / 4位{south.get('rank_4', 0)}次
 
 ─────────────────────────────
@@ -268,14 +313,14 @@ def generate_weekly_report(
 
 if __name__ == "__main__":
     try:
-        print("\n=== 测试1：默认（最新两轮）===")
+        print("\n=== 测试：默认最新战报 ===")
         reports = generate_weekly_report(school_keyword="第二工业")
         for i, msg in enumerate(reports, 1):
             print(f"消息{i}:\n{msg}\n")
         
-        print("\n=== 测试2：第1周（第1、2轮）===")
-        reports_week1 = generate_weekly_report(school_keyword="第二工业", week_number=1)
-        for i, msg in enumerate(reports_week1, 1):
+        print("\n=== 测试：第2周（第3、4轮）===")
+        reports_week2 = generate_weekly_report(school_keyword="第二工业", week_number=2)
+        for i, msg in enumerate(reports_week2, 1):
             print(f"消息{i}:\n{msg}\n")
         
     except Exception as e:

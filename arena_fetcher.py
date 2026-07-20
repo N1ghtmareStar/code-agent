@@ -32,7 +32,7 @@ SCHOOL_NAME_FIX = {
     "对外经济贸易大": "对外经济贸易大学",
 }
 
-# 每周对应的轮次（常规赛：每周2轮）
+# 每周对应的轮次
 WEEK_ROUNDS = {
     1: [1, 2],
     2: [3, 4],
@@ -46,7 +46,6 @@ WEEK_ROUNDS = {
 # ============================================================
 
 def fetch_score_view(score_view_id: str) -> dict:
-    """获取指定 score-view 的完整数据"""
     url = f"{ARENA_BASE}/api/score-views/{score_view_id}/input"
     print(f"📡 正在请求: {url}")
     resp = requests.get(url, timeout=30)
@@ -55,7 +54,6 @@ def fetch_score_view(score_view_id: str) -> dict:
 
 
 def fetch_participants(contest_id: str) -> Dict[str, str]:
-    """获取参赛方列表，返回 { participantId: school_name } 映射"""
     url = f"{ARENA_BASE}/api/contests/{contest_id}/participants"
     print(f"📡 正在请求参赛方列表: {url}")
     resp = requests.get(url, timeout=30)
@@ -76,7 +74,6 @@ def fetch_participants(contest_id: str) -> Dict[str, str]:
 
 
 def fetch_contest_data() -> Tuple[dict, dict, Dict[str, str]]:
-    """获取东风、半庄赛道数据以及参赛方名称映射"""
     east_data = fetch_score_view(EAST_SCORE_VIEW_ID)
     south_data = fetch_score_view(SOUTH_SCORE_VIEW_ID)
     participants = fetch_participants(CONTEST_ID)
@@ -88,10 +85,6 @@ def fetch_contest_data() -> Tuple[dict, dict, Dict[str, str]]:
 # ============================================================
 
 def calc_single_game_score(score: int, rank: int, rank_bonus: Dict[int, int]) -> float:
-    """
-    单场完整得分 = 精算点 + 顺位点
-    精算点 = (完场点数 - 25000) / 1000
-    """
     alap_score = (score - 25000) / 1000.0
     rank_point = rank_bonus.get(rank, 0)
     return alap_score + rank_point
@@ -102,44 +95,29 @@ def calc_single_game_score(score: int, rank: int, rank_bonus: Dict[int, int]) ->
 # ============================================================
 
 def get_latest_completed_rounds(round_count: int = 2) -> List[int]:
-    """
-    获取最近已完成的轮次（status == 'finished'）
-    """
     east_data = fetch_score_view(EAST_SCORE_VIEW_ID)
     completed_rounds = []
-    
-    # 从 rounds 中获取状态为 finished 的轮次
     for round_info in east_data.get("rounds", []):
         round_num = round_info.get("number")
         status = round_info.get("status")
         if round_num is not None and status == "finished":
             completed_rounds.append(round_num)
-    
     sorted_rounds = sorted(completed_rounds)
-    # 返回最近的 round_count 轮
     return sorted_rounds[-round_count:] if sorted_rounds else []
 
 
 def get_rounds_for_week(week_number: int) -> List[int]:
-    """
-    根据周数获取对应的轮次
-    """
     if week_number in WEEK_ROUNDS:
         return WEEK_ROUNDS[week_number]
-    # 如果周数超出定义范围，尝试计算：第1周=1,2轮，第2周=3,4轮，以此类推
     start_round = (week_number - 1) * 2 + 1
     return [start_round, start_round + 1]
 
 
 # ============================================================
-# 数据解析：按赛道、轮次聚合（支持轮次过滤）
+# 数据解析
 # ============================================================
 
 def parse_rounds_and_scores(data: dict, track_id: str, rank_bonus: Dict[int, int], round_filter: Optional[List[int]] = None) -> Dict[int, Dict[str, dict]]:
-    """
-    解析指定赛道，支持按轮次过滤
-    round_filter: 指定要包含的轮次列表，如 [1, 2, 3, 4]
-    """
     round_data = defaultdict(lambda: defaultdict(lambda: {"total_score": 0.0, "rank": 0, "details": []}))
     stages = data.get("stages", [])
     stage_track_map = {s.get("id"): s.get("trackId") for s in stages}
@@ -147,12 +125,9 @@ def parse_rounds_and_scores(data: dict, track_id: str, rank_bonus: Dict[int, int
     for match in data.get("matches", []):
         if stage_track_map.get(match.get("stageId")) != track_id:
             continue
-        
         round_num = match.get("roundNumber")
         if round_num is None:
             continue
-        
-        # 如果指定了轮次过滤，跳过不在列表中的轮次
         if round_filter is not None and round_num not in round_filter:
             continue
         
@@ -177,16 +152,14 @@ def parse_rounds_and_scores(data: dict, track_id: str, rank_bonus: Dict[int, int
 
 
 def calculate_team_scores(round_data: Dict[int, Dict[str, dict]]) -> Dict[str, dict]:
-    """
-    计算每个队伍的总分、顺位分布和明细
-    """
     team_data = defaultdict(lambda: {
         "total_score": 0.0,
         "rank_1": 0,
         "rank_2": 0,
         "rank_3": 0,
         "rank_4": 0,
-        "details": []
+        "details": [],
+        "round_scores": {}
     })
     
     for round_num, participants in round_data.items():
@@ -196,6 +169,7 @@ def calculate_team_scores(round_data: Dict[int, Dict[str, dict]]) -> Dict[str, d
             details = data["details"]
             
             team_data[pid]["total_score"] += total
+            team_data[pid]["round_scores"][round_num] = total
             team_data[pid]["details"].extend(details)
             
             if rank == 1:
@@ -216,17 +190,21 @@ def calculate_team_scores(round_data: Dict[int, Dict[str, dict]]) -> Dict[str, d
 
 def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
     """
-    从 Arena 获取数据，支持按轮次过滤
-    round_filter: 指定要包含的轮次列表，如 [1, 2] 表示第1、2轮
+    获取战报数据
+    total_score 始终是从第1轮开始的累计值
+    round_scores 包含每轮的总分
     """
     print("📊 开始从 Arena 获取数据...")
     if round_filter:
         print(f"📌 过滤轮次: 第 {', '.join(map(str, round_filter))} 轮")
     
+    # 获取从第1轮到当前轮次的所有数据（用于计算累计）
+    all_rounds = list(range(1, max(round_filter) + 1)) if round_filter else None
+    
     east_data, south_data, participants = fetch_contest_data()
     
-    east_rounds = parse_rounds_and_scores(east_data, EAST_TRACK_ID, EAST_RANK_BONUS, round_filter)
-    south_rounds = parse_rounds_and_scores(south_data, SOUTH_TRACK_ID, SOUTH_RANK_BONUS, round_filter)
+    east_rounds = parse_rounds_and_scores(east_data, EAST_TRACK_ID, EAST_RANK_BONUS, all_rounds)
+    south_rounds = parse_rounds_and_scores(south_data, SOUTH_TRACK_ID, SOUTH_RANK_BONUS, all_rounds)
     
     east_scores = calculate_team_scores(east_rounds)
     south_scores = calculate_team_scores(south_rounds)
@@ -241,8 +219,8 @@ def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
     }
     
     for pid in all_participants:
-        east = east_scores.get(pid, {"total_score": 0, "rank_1": 0, "rank_2": 0, "rank_3": 0, "rank_4": 0, "details": []})
-        south = south_scores.get(pid, {"total_score": 0, "rank_1": 0, "rank_2": 0, "rank_3": 0, "rank_4": 0, "details": []})
+        east = east_scores.get(pid, {"total_score": 0, "rank_1": 0, "rank_2": 0, "rank_3": 0, "rank_4": 0, "details": [], "round_scores": {}})
+        south = south_scores.get(pid, {"total_score": 0, "rank_1": 0, "rank_2": 0, "rank_3": 0, "rank_4": 0, "details": [], "round_scores": {}})
         
         total = east["total_score"] + south["total_score"]
         name = participants.get(pid, pid[:8] + "...")
@@ -273,25 +251,28 @@ def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
 
 if __name__ == "__main__":
     try:
-        print("\n=== 测试1：获取最新两轮 ===")
-        latest_rounds = get_latest_completed_rounds(2)
-        print(f"📌 最新已完成轮次: {latest_rounds}")
-        data = fetch_weekly_report_data(latest_rounds)
-        print(f"📋 比赛: {data['contest_name']}")
-        print(f"📌 包含轮次: {latest_rounds}")
-        print(f"🏫 参赛队伍: {len(data['teams'])} 个")
+        print("\n=== 测试：获取第1-4轮数据 ===")
+        data = fetch_weekly_report_data([1, 2, 3, 4])
         
-        # 检查上海第二工业大学
         for pid, team in data['teams'].items():
             if "第二工业" in team['name']:
-                print(f"  ✅ {team['name']}: {team['total_score']:.1f} 分")
+                print(f"✅ {team['name']}:")
+                print(f"   总累计: {team['total_score']:.1f}")
+                print(f"   东风累计: {team['east']['total_score']:.1f}")
+                print(f"   东风轮次明细: {team['east']['round_scores']}")
+                print(f"   半庄累计: {team['south']['total_score']:.1f}")
+                print(f"   半庄轮次明细: {team['south']['round_scores']}")
         
-        print("\n=== 测试2：获取第1周战报（第1、2轮）===")
-        week1_rounds = get_rounds_for_week(1)
-        data_week1 = fetch_weekly_report_data(week1_rounds)
-        for pid, team in data_week1['teams'].items():
+        print("\n=== 测试：第3-4轮（累计应该包含第1-4轮）===")
+        data2 = fetch_weekly_report_data([3, 4])
+        for pid, team in data2['teams'].items():
             if "第二工业" in team['name']:
-                print(f"  ✅ {team['name']}: {team['total_score']:.1f} 分")
+                print(f"✅ {team['name']}:")
+                print(f"   总累计: {team['total_score']:.1f}")
+                print(f"   东风累计: {team['east']['total_score']:.1f}")
+                print(f"   东风轮次明细: {team['east']['round_scores']}")
+                print(f"   半庄累计: {team['south']['total_score']:.1f}")
+                print(f"   半庄轮次明细: {team['south']['round_scores']}")
         
         with open("arena_data.json", "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
