@@ -26,11 +26,11 @@ if not VOLC_ENDPOINT_ID:
     print("⚠️ 警告：VOLC_ENDPOINT_ID 未设置，大模型功能不可用")
 
 API_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
-MODEL = VOLC_ENDPOINT_ID  # 使用 Endpoint ID 作为 model
+MODEL = VOLC_ENDPOINT_ID
 
 
 # ============================================================
-# 1. 工具函数（备用，当大模型不可用时使用）
+# 1. 工具函数
 # ============================================================
 
 def extract_school_keyword(text: str, default: str = "第二工业") -> str:
@@ -91,7 +91,6 @@ def extract_round_numbers(text: str) -> Optional[List[int]]:
 # ============================================================
 
 def call_llm(prompt: str) -> str:
-    """调用火山引擎大模型"""
     if not VOLC_ACCESS_KEY or not VOLC_ENDPOINT_ID:
         print("⚠️ 大模型未配置，使用本地规则")
         return None
@@ -122,14 +121,10 @@ def call_llm(prompt: str) -> str:
 
 
 def generate_code_with_llm(user_input: str) -> str:
-    """使用大模型解析用户输入，生成代码"""
-    
-    # 先尝试本地规则快速匹配（备用）
     school = extract_school_keyword(user_input, default="第二工业")
     week = extract_week_number(user_input)
     rounds = extract_round_numbers(user_input)
     
-    # 如果本地规则已经明确匹配到了，直接用（更快）
     if week is not None:
         return f"""
 print(generate_weekly_report_text(school_keyword="{school}", week_number={week}))
@@ -139,7 +134,6 @@ print(generate_weekly_report_text(school_keyword="{school}", week_number={week})
 print(generate_weekly_report_text(school_keyword="{school}", round_numbers={rounds}))
 """
     
-    # 否则调用大模型
     print("--- 调用大模型解析指令 ---")
     
     prompt = f"""
@@ -158,19 +152,16 @@ print(generate_weekly_report_text(school_keyword="二工大", week_number=1))
     
     code = call_llm(prompt)
     
-    # 如果大模型调用失败，使用本地规则兜底
     if code is None:
         print("⚠️ 大模型不可用，使用本地规则兜底")
         return f"""
 print(generate_weekly_report_text(school_keyword="{school}"))
 """
     
-    # 提取代码块中的代码
     code_match = re.search(r'```python\n(.*?)```', code, re.DOTALL)
     if code_match:
         return code_match.group(1).strip()
     
-    # 如果没有代码块标记，直接返回
     return code.strip()
 
 
@@ -199,7 +190,6 @@ def safe_execute(code: str, globals_dict: dict = None) -> str:
     try:
         exec(code, globals_dict)
         output = sys.stdout.getvalue()
-        # 过滤调试信息
         lines = output.split('\n')
         filtered_lines = []
         for line in lines:
@@ -214,9 +204,59 @@ def safe_execute(code: str, globals_dict: dict = None) -> str:
         sys.stdout = old_stdout
 
 
+def get_help_text() -> str:
+    """返回使用帮助文本"""
+    return """📖 **战报机器人使用帮助**
+
+**基本用法：**
+@机器人 生成战报
+
+**学校指定：**
+• 生成二工大战报
+• 生成北大战报
+• 生成上大战报
+
+**周数指定：**
+• 生成第1周战报
+• 生成第2周战报
+• 生成第一周战报
+• 生成二工大第一周战报
+
+**轮次指定：**
+• 生成第3、4轮战报
+• 生成第1-2轮战报
+
+**默认：**
+• 不指定学校时，默认查询「上海第二工业大学」
+• 不指定时间时，默认查询最新已完成的两轮
+
+**示例：**
+@机器人 生成二工大第2周战报
+@机器人 生成北大战报
+@机器人 生成第3、4轮战报
+
+**其他功能：**
+• 发送「帮助」查看此说明
+• 发送「hello」获取随机问候"""
+
+
 def run_agent(user_input: str) -> str:
     print(f"用户输入：{user_input}")
     
+    # ===== 帮助指令 =====
+    help_keywords = ["帮助", "help", "怎么用", "使用方法", "指令", "功能"]
+    user_lower = user_input.lower().strip()
+    
+    if user_lower in ["帮助", "help"] or any(kw in user_lower for kw in ["怎么用", "使用方法", "指令", "功能"]):
+        return get_help_text()
+    
+    # ===== 简单问候 =====
+    if user_lower in ["你好", "hello", "hi", "hey"]:
+        import random
+        greetings = ["你好呀！😊", "嗨！有什么可以帮你的？", "hello！需要生成战报吗？", "我在呢！👋"]
+        return random.choice(greetings)
+    
+    # ===== 战报生成 =====
     if "生成" in user_input and "战报" in user_input:
         print("--- 正在生成战报 ---")
         code = generate_code_with_llm(user_input)
@@ -233,17 +273,17 @@ def run_agent(user_input: str) -> str:
         print(f"执行结果：{result}")
         return result
     
-    return "抱歉，我暂时无法处理这个请求。"
+    # ===== 其他指令 =====
+    return "抱歉，我暂时无法处理这个请求。\n\n发送「帮助」查看使用说明。"
 
 
 if __name__ == "__main__":
     test_inputs = [
+        "帮助",
         "生成二工大战报",
         "生成二工大第一周战报",
-        "生成二工大首周战报",
         "生成战报",
-        "生成第2周战报",
-        "生成第3、4轮战报",
+        "你好",
     ]
     
     for inp in test_inputs:
