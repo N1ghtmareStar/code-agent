@@ -13,6 +13,14 @@ from match_report import generate_weekly_report_text
 # ============================================================
 
 def extract_school_keyword(text: str, default: str = "第二工业") -> str:
+    # 先移除周数和轮数信息
+    cleaned = text
+    # 移除 "第X周"
+    cleaned = re.sub(r'第\d+周', '', cleaned)
+    # 移除 "第X、Y轮" 或 "第X-Y轮"
+    cleaned = re.sub(r'第[\d、,，\-到]+轮', '', cleaned)
+    cleaned = cleaned.strip()
+    
     patterns = [
         r"生成(.+?)战报",
         r"战报(.+?)学校",
@@ -21,10 +29,9 @@ def extract_school_keyword(text: str, default: str = "第二工业") -> str:
     ]
     
     for pattern in patterns:
-        match = re.search(pattern, text)
+        match = re.search(pattern, cleaned)
         if match:
             keyword = match.group(1).strip()
-            # 如果提取到的关键词是"生成"、"战报"等无意义词，跳过
             if keyword in ["生成", "战报", "的", "个"]:
                 continue
             if len(keyword) >= 2 and not re.search(r'[^a-zA-Z\u4e00-\u9fa5]', keyword):
@@ -74,27 +81,22 @@ def extract_round_numbers(text: str) -> Optional[List[int]]:
 
 
 def generate_code_with_llm(user_input: str) -> str:
-    """
-    使用大模型生成代码（模拟）
-    """
+    """使用大模型生成代码（模拟）"""
     if "战报" in user_input:
         school_keyword = extract_school_keyword(user_input, default="第二工业")
         
-        # 检查是否指定了周数
         week_num = extract_week_number(user_input)
         if week_num is not None:
             return f"""
 print(generate_weekly_report_text(school_keyword="{school_keyword}", week_number={week_num}))
 """
         
-        # 检查是否指定了轮次
         round_nums = extract_round_numbers(user_input)
         if round_nums is not None:
             return f"""
 print(generate_weekly_report_text(school_keyword="{school_keyword}", round_numbers={round_nums}))
 """
         
-        # 默认：最新战报
         return f"""
 print(generate_weekly_report_text(school_keyword="{school_keyword}"))
 """
@@ -138,7 +140,6 @@ def run_agent(user_input: str) -> str:
     if "生成" in user_input and "战报" in user_input:
         school_keyword = extract_school_keyword(user_input, default="第二工业")
         
-        # 检查是否指定了周数
         week_num = extract_week_number(user_input)
         if week_num is not None:
             result = generate_weekly_report_text(school_keyword=school_keyword, week_number=week_num)
@@ -147,7 +148,6 @@ def run_agent(user_input: str) -> str:
             else:
                 return str(result)
         
-        # 检查是否指定了轮次
         round_nums = extract_round_numbers(user_input)
         if round_nums is not None:
             result = generate_weekly_report_text(school_keyword=school_keyword, round_numbers=round_nums)
@@ -156,7 +156,6 @@ def run_agent(user_input: str) -> str:
             else:
                 return str(result)
         
-        # 默认：最新战报
         result = generate_weekly_report_text(school_keyword=school_keyword)
         if isinstance(result, list):
             return result
@@ -185,6 +184,7 @@ if __name__ == "__main__":
     test_inputs = [
         "生成战报",
         "生成二工大战报",
+        "生成二工大第一周战报",
         "生成第2周战报",
         "生成第1、2轮战报",
     ]
