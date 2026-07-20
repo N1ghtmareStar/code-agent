@@ -212,9 +212,11 @@ def generate_weekly_report(
     """
     生成战报（带按学校缓存）
     """
+    print(f"🔍 [generate_weekly_report] school={school_keyword}, week={week_number}, rounds={round_numbers}", flush=True)
+    
     original_keyword = school_keyword
     
-    # ===== 🔥 先确定实际轮次 =====
+    # 确定轮次
     if round_numbers is not None:
         target_rounds = round_numbers
     elif week_number is not None:
@@ -222,13 +224,21 @@ def generate_weekly_report(
     else:
         target_rounds = get_latest_completed_rounds(2)
     
-    # ===== 🔥 用实际轮次生成缓存键 =====
-    cache_key = f"{school_keyword}_{week_number}_{','.join(map(str, target_rounds))}"
+    print(f"🔍 [generate_weekly_report] target_rounds={target_rounds}", flush=True)
+    
+    # 🔥 缓存键：学校 + 轮次（去掉 week_number）
+    cache_key = f"{school_keyword}_{','.join(map(str, target_rounds))}"
+    print(f"🔑 [generate_weekly_report] cache_key={cache_key}", flush=True)
+    
+    # 检查缓存
     if cache_key in _report_cache:
         cached_data, timestamp = _report_cache[cache_key]
+        print(f"📦 缓存命中! 时间差: {time.time() - timestamp:.1f}s", flush=True)
         if time.time() - timestamp < CACHE_TTL:
-            print(f"📦 使用缓存的战报: {school_keyword} (轮次: {target_rounds})")
+            print(f"📦 使用缓存的战报: {school_keyword} (轮次: {target_rounds})", flush=True)
             return cached_data
+    else:
+        print(f"❌ 缓存未命中", flush=True)
     
     # ===== 获取数据 =====
     try:
@@ -395,7 +405,7 @@ def generate_weekly_report(
     
     # ===== 存入缓存 =====
     _report_cache[cache_key] = (messages, time.time())
-    print(f"💾 已缓存战报: {school_keyword} (轮次: {target_rounds})")
+    print(f"💾 已缓存战报: {school_keyword} (轮次: {target_rounds})", flush=True)
     
     return messages
 
