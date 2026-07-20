@@ -7,7 +7,6 @@ from arena_fetcher import fetch_weekly_report_data, EAST_RANK_BONUS, SOUTH_RANK_
 
 
 def get_prev_rounds(current_rounds: List[int]) -> List[int]:
-    """获取当前轮次对应的上一周轮次"""
     if not current_rounds:
         return []
     min_round = min(current_rounds)
@@ -18,7 +17,6 @@ def get_prev_rounds(current_rounds: List[int]) -> List[int]:
 
 
 def get_week_from_rounds(rounds: List[int]) -> Optional[int]:
-    """根据轮次判断是第几周"""
     if not rounds:
         return None
     min_round = min(rounds)
@@ -184,6 +182,26 @@ def format_details_from_arena(details: List[dict], rank_bonus: Dict[int, int]) -
     return "\n".join(result_lines)
 
 
+# ============================================================
+# 🔥 新增：消息截断（防止长战报被QQ吞掉）
+# ============================================================
+MAX_MSG_LENGTH = 1800  # QQ群消息限制约2000字，留200字余量
+
+
+def truncate_message(msg: str) -> str:
+    """截断过长的消息"""
+    if len(msg) <= MAX_MSG_LENGTH:
+        return msg
+    return msg[:MAX_MSG_LENGTH - 50] + "\n\n... (内容过长已截断)"
+
+
+# ============================================================
+# 🔥 新增：统一异常处理
+# ============================================================
+class ReportError(Exception):
+    pass
+
+
 def generate_weekly_report(
     school_keyword: str = "第二工业",
     week_number: Optional[int] = None,
@@ -215,7 +233,7 @@ def generate_weekly_report(
     
     # ---- 判断模式 ----
     is_single_round = len(target_rounds) == 1
-    is_cumulative = len(target_rounds) > 2  # 多轮累计模式（如1-4轮）
+    is_cumulative = len(target_rounds) > 2
     
     if is_cumulative:
         round_label = "累计"
@@ -224,7 +242,7 @@ def generate_weekly_report(
         round_label = "本轮" if is_single_round else "本周"
         prev_label = "上轮" if is_single_round else "上周"
     
-    # ---- 获取上一轮/周数据（用于排名变化） ----
+    # ---- 获取上一轮/周数据 ----
     last_final_rank = 0
     if last_week_data is None and not is_cumulative:
         if is_single_round:
@@ -255,15 +273,12 @@ def generate_weekly_report(
     total_score = school_data.get("total_score", 0.0)
     final_rank = school_data.get("final_rank", 0)
     
-    # 计算本轮/周轮次总分（从 round_scores 中累加当前轮次）
     east_round_total = sum(score for round_num, score in east.get("round_scores", {}).items() if round_num in target_rounds)
     south_round_total = sum(score for round_num, score in south.get("round_scores", {}).items() if round_num in target_rounds)
     delta_total = east_round_total + south_round_total
     
-    # 上轮/上周累计分数
     last_total = total_score - delta_total
     
-    # 排名变化
     if last_final_rank == 0:
         rank_desc = "持平"
     elif final_rank < last_final_rank:
@@ -273,7 +288,6 @@ def generate_weekly_report(
     else:
         rank_desc = "持平"
     
-    # ===== 晋级线 =====
     promotion_line = arena_data.get("promotion_line", 0.0)
     if promotion_line > 0:
         diff = total_score - promotion_line
@@ -286,7 +300,7 @@ def generate_weekly_report(
     else:
         promotion_text = "•  晋级线：暂无数据"
     
-    # ===== 生成标题 =====
+    # ---- 生成标题 ----
     if title:
         week_title = title
     elif round_numbers is not None:
@@ -304,14 +318,13 @@ def generate_weekly_report(
             round_str = f"第{target_rounds[0]}-{target_rounds[-1]}轮" if len(target_rounds) > 1 else f"第{target_rounds[0]}轮"
             week_title = f"{round_str}战报"
     
-    # 过滤明细，只保留当前轮次
+    # 过滤明细
     east_details = [d for d in east.get("details", []) if d.get("round") in target_rounds]
     south_details = [d for d in south.get("details", []) if d.get("round") in target_rounds]
     
     east_detail = format_details_from_arena(east_details, EAST_RANK_BONUS)
     south_detail = format_details_from_arena(south_details, SOUTH_RANK_BONUS)
     
-    # 从当前轮次明细中统计顺位
     east_rank_1 = sum(1 for d in east_details if d.get("rank") == 1)
     east_rank_2 = sum(1 for d in east_details if d.get("rank") == 2)
     east_rank_3 = sum(1 for d in east_details if d.get("rank") == 3)
@@ -322,9 +335,8 @@ def generate_weekly_report(
     south_rank_3 = sum(1 for d in south_details if d.get("rank") == 3)
     south_rank_4 = sum(1 for d in south_details if d.get("rank") == 4)
     
-    # ===== 消息1：总览 =====
+    # ===== 消息1 =====
     if is_cumulative:
-        # 累计模式：直接显示总累计
         msg1 = f"""📊 第五届联合杯 · {week_title}
 
 🏫 参赛学校：{school_name}
@@ -336,7 +348,6 @@ def generate_weekly_report(
 •  当前排名：第 {final_rank} 名（{rank_desc}）
 {promotion_text}"""
     else:
-        # 普通模式：显示上周/本周
         msg1 = f"""📊 第五届联合杯 · {week_title}
 
 🏫 参赛学校：{school_name}
@@ -350,7 +361,7 @@ def generate_weekly_report(
 •  当前排名：第 {final_rank} 名（{rank_desc}）
 {promotion_text}"""
     
-    # ===== 消息2：东风赛道 =====
+    # ===== 消息2 =====
     east_total = east.get('total_score', 0.0)
     msg2 = f"""🀀 东风赛道：{east_total:.1f} 分（{east_round_total:+.1f}）
 •  顺位：1位{east_rank_1}次 / 2位{east_rank_2}次 / 3位{east_rank_3}次 / 4位{east_rank_4}次
@@ -359,7 +370,7 @@ def generate_weekly_report(
 📌 {round_label}明细（东风）：
 {east_detail}"""
 
-    # ===== 消息3：半庄赛道 =====
+    # ===== 消息3 =====
     south_total = south.get('total_score', 0.0)
     msg3 = f"""🀁 半庄赛道：{south_total:.1f} 分（{south_round_total:+.1f}）
 •  顺位：1位{south_rank_1}次 / 2位{south_rank_2}次 / 3位{south_rank_3}次 / 4位{south_rank_4}次
@@ -368,7 +379,15 @@ def generate_weekly_report(
 📌 {round_label}明细（半庄）：
 {south_detail}"""
 
-    return [msg1, msg2, msg3]
+    messages = [msg1, msg2, msg3]
+    
+    # 🔥 截断过长消息
+    messages = [truncate_message(msg) for msg in messages]
+    
+    return messages
+
+
+generate_weekly_report_text = generate_weekly_report
 
 
 # ============================================================
@@ -396,6 +415,3 @@ if __name__ == "__main__":
         print(f"❌ 测试失败：{e}")
         import traceback
         traceback.print_exc()
-
-
-generate_weekly_report_text = generate_weekly_report

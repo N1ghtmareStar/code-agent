@@ -62,9 +62,29 @@ def clean_name(text: str) -> str:
 
 
 # ============================================================
-# 带重试的请求函数
+# 🔥 新增：缓存（加快重复查询）
 # ============================================================
+_cache = {}
+CACHE_TTL = 300  # 5分钟内重复查询用缓存
 
+
+def get_cache(key: str):
+    """获取缓存"""
+    if key in _cache:
+        data, timestamp = _cache[key]
+        if time.time() - timestamp < CACHE_TTL:
+            return data
+    return None
+
+
+def set_cache(key: str, data):
+    """设置缓存"""
+    _cache[key] = (data, time.time())
+
+
+# ============================================================
+# 🔥 新增：重试机制（网络波动自动重试）
+# ============================================================
 def fetch_with_retry(url: str, max_retries: int = MAX_RETRIES, timeout: int = REQUEST_TIMEOUT) -> requests.Response:
     for attempt in range(max_retries):
         try:
@@ -72,13 +92,19 @@ def fetch_with_retry(url: str, max_retries: int = MAX_RETRIES, timeout: int = RE
             resp.raise_for_status()
             return resp
         except requests.exceptions.Timeout:
-            debug_print(f"⏱️ 请求超时，第 {attempt + 1}/{max_retries} 次重试...")
+            print(f"⏱️ 请求超时，第 {attempt + 1}/{max_retries} 次重试...")
             if attempt < max_retries - 1:
-                time.sleep(1)
+                time.sleep(2)
             else:
                 raise Exception(f"请求超时")
+        except requests.exceptions.ConnectionError:
+            print(f"🔌 网络连接失败，第 {attempt + 1}/{max_retries} 次重试...")
+            if attempt < max_retries - 1:
+                time.sleep(2)
+            else:
+                raise Exception(f"网络连接失败")
         except requests.exceptions.RequestException as e:
-            debug_print(f"⚠️ 请求失败: {e}")
+            print(f"⚠️ 请求失败: {e}")
             if attempt < max_retries - 1:
                 time.sleep(1)
             else:
@@ -89,27 +115,29 @@ def fetch_with_retry(url: str, max_retries: int = MAX_RETRIES, timeout: int = RE
 # 数据获取（带缓存）
 # ============================================================
 
-_cache = {}
-
-
 def fetch_score_view(score_view_id: str) -> dict:
-    if score_view_id in _cache:
+    # 🔥 检查缓存
+    cached = get_cache(score_view_id)
+    if cached:
         debug_print(f"📦 使用缓存: {score_view_id}")
-        return _cache[score_view_id]
+        return cached
     
     url = f"{ARENA_BASE}/api/score-views/{score_view_id}/input"
     debug_print(f"📡 正在请求: {url}")
     resp = fetch_with_retry(url)
     data = resp.json()
-    _cache[score_view_id] = data
+    
+    # 🔥 存入缓存
+    set_cache(score_view_id, data)
     return data
 
 
 def fetch_participants(contest_id: str) -> Dict[str, str]:
     cache_key = f"participants_{contest_id}"
-    if cache_key in _cache:
+    cached = get_cache(cache_key)
+    if cached:
         debug_print("📦 使用缓存的参赛方列表")
-        return _cache[cache_key]
+        return cached
     
     url = f"{ARENA_BASE}/api/contests/{contest_id}/participants"
     debug_print(f"📡 正在请求参赛方列表: {url}")
@@ -126,7 +154,7 @@ def fetch_participants(contest_id: str) -> Dict[str, str]:
                 name = SCHOOL_NAME_FIX[name]
             name_map[pid] = name
     
-    _cache[cache_key] = name_map
+    set_cache(cache_key, name_map)
     debug_print(f"✅ 获取到 {len(name_map)} 个参赛方名称")
     return name_map
 
@@ -243,7 +271,6 @@ def calculate_team_scores(round_data: Dict[int, Dict[str, dict]]) -> Dict[str, d
             team_data[pid]["round_scores"][round_num] = total
             team_data[pid]["details"].extend(details)
     
-    # 统计顺位
     for pid, data in team_data.items():
         for detail in data["details"]:
             rank = detail.get("rank")
@@ -284,7 +311,7 @@ def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
         "current_round": east_data.get("phases", [{}])[0].get("activeRoundNumber", 0),
         "teams": {},
         "rankings": [],
-        "promotion_line": 0.0  # 🔥 默认值
+        "promotion_line": 0.0
     }
     
     for pid in all_participants:
@@ -301,7 +328,6 @@ def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
             "total_score": round(total, 1)
         }
     
-    # 生成排名
     sorted_teams = sorted(
         result["teams"].items(),
         key=lambda x: x[1]["total_score"],
@@ -315,13 +341,8 @@ def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
     
     result["rankings"] = rankings
     
-    # 🔥 获取晋级线（第32名分数）
     if len(rankings) >= 32:
         result["promotion_line"] = rankings[31][1]
-        debug_print(f"🔍 晋级线（第32名）：{result['promotion_line']:.1f} 分")
-    else:
-        result["promotion_line"] = 0.0
-        debug_print(f"⚠️ 排名数据不足32条，当前只有 {len(rankings)} 条")
     
     debug_print(f"✅ 成功获取 {len(result['teams'])} 个队伍的数据")
     return result
