@@ -124,23 +124,19 @@ async def send_forward_message(websocket, group_id: int, user_id: int, user_inpu
 
 # ========== 🔥 改进的学校提取 ==========
 def extract_school_from_input(user_input: str) -> str:
-    """从用户输入中提取学校名称"""
-    # 先尝试匹配常见学校名（2-4个中文字符，可能以大学/学院/大结尾）
+    """从用户输入中提取学校名称（支持别名）"""
+    # 先检查别名映射
+    for alias, full_name in SCHOOL_ALIAS.items():
+        if alias in user_input or full_name in user_input:
+            return full_name
+    
+    # 匹配常见学校名（2-4个中文字符，可能以大学/学院/大结尾）
     school_match = re.search(r'([\u4e00-\u9fa5]{2,4}(?:大学|学院|大)?)', user_input)
     if school_match:
         school = school_match.group(1)
         invalid_words = ["请", "我", "你", "他", "这", "那", "什么", "怎么", "的", "了", "吗", "呢", "吧", "啊", "如何", "联合杯"]
         if school not in invalid_words:
-            # 检查别名映射
-            for alias, full_name in SCHOOL_ALIAS.items():
-                if school in alias or school in full_name:
-                    return full_name if len(full_name) > len(school) else school
             return school
-    
-    # 从别名映射表中匹配
-    for alias, full_name in SCHOOL_ALIAS.items():
-        if alias in user_input or full_name in user_input:
-            return full_name
     
     return None
 

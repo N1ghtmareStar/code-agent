@@ -26,7 +26,7 @@ def get_week_from_rounds(rounds: List[int]) -> Optional[int]:
 
 
 # ============================================================
-# 别名映射表
+# 别名映射表（已扩充）
 # ============================================================
 SCHOOL_ALIAS = {
     "北大": "北京大学",
@@ -117,15 +117,45 @@ SCHOOL_ALIAS = {
     "南大": "南京大学",
     "北信": "北京信息科技大",
     "北信科": "北京信息科技大学",
+    # ===== 新增别名 =====
+    "二工": "上海第二工业大",
+    "交大": "上海交通大学",
+    "同济": "同济大学",
+    "复旦": "复旦大学",
+    "华师": "华东师范大学",
+    "华师大": "华东师范大学",
+    "上外": "上海外国语大学",
+    "东华": "东华大学",
+    "上理": "上海理工大学",
+    "海事": "上海海事大学",
+    "海洋": "上海海洋大学",
+    "上戏": "上海戏剧学院",
+    "上音": "上海音乐学院",
+    "体院": "上海体育学院",
+    "上政": "上海政法学院",
+    "上应": "上海应用技术大学",
+    "上海科技": "上海科技大学",
+    "上科大": "上海科技大学",
+    "中科院": "中国科学院大学",
+    "国科大": "中国科学院大学",
+    "社科大": "中国社会科学院大学",
 }
 
 
 def resolve_school_alias(keyword: str) -> str:
     keyword = keyword.strip()
+    # 精确匹配
     if keyword in SCHOOL_ALIAS:
         return SCHOOL_ALIAS[keyword]
+    # 模糊匹配：检查是否包含别名
+    for alias, full_name in SCHOOL_ALIAS.items():
+        if alias in keyword or keyword in alias:
+            return full_name
+    # 后缀补全
     if keyword.endswith("大"):
         return keyword[:-1] + "大学"
+    if keyword.endswith("院"):
+        return keyword + "学院"
     return keyword
 
 
@@ -202,6 +232,20 @@ _report_cache = {}
 CACHE_TTL = 300  # 5分钟
 
 
+def clear_cache(school_keyword: str = None) -> str:
+    """清除缓存，如果指定学校则只清除该学校的缓存"""
+    global _report_cache
+    if school_keyword is None:
+        _report_cache.clear()
+        return "✅ 已清除所有战报缓存"
+    
+    # 清除匹配的缓存
+    to_delete = [k for k in _report_cache.keys() if k.startswith(school_keyword)]
+    for key in to_delete:
+        del _report_cache[key]
+    return f"✅ 已清除 {school_keyword} 的战报缓存（共 {len(to_delete)} 条）"
+
+
 def generate_weekly_report(
     school_keyword: str = "第二工业",
     week_number: Optional[int] = None,
@@ -215,6 +259,8 @@ def generate_weekly_report(
     print(f"🔍 [generate_weekly_report] school={school_keyword}, week={week_number}, rounds={round_numbers}", flush=True)
     
     original_keyword = school_keyword
+    resolved_school = resolve_school_alias(school_keyword)
+    print(f"🔍 [generate_weekly_report] resolved_school={resolved_school}", flush=True)
     
     # 确定轮次
     if round_numbers is not None:
@@ -226,8 +272,8 @@ def generate_weekly_report(
     
     print(f"🔍 [generate_weekly_report] target_rounds={target_rounds}", flush=True)
     
-    # 🔥 缓存键：学校 + 轮次（去掉 week_number）
-    cache_key = f"{school_keyword}_{','.join(map(str, target_rounds))}"
+    # 🔥 缓存键：使用解析后的学校名 + 轮次
+    cache_key = f"{resolved_school}_{','.join(map(str, target_rounds))}"
     print(f"🔑 [generate_weekly_report] cache_key={cache_key}", flush=True)
     
     # 检查缓存
@@ -235,7 +281,7 @@ def generate_weekly_report(
         cached_data, timestamp = _report_cache[cache_key]
         print(f"📦 缓存命中! 时间差: {time.time() - timestamp:.1f}s", flush=True)
         if time.time() - timestamp < CACHE_TTL:
-            print(f"📦 使用缓存的战报: {school_keyword} (轮次: {target_rounds})", flush=True)
+            print(f"📦 使用缓存的战报: {resolved_school} (轮次: {target_rounds})", flush=True)
             return cached_data
     else:
         print(f"❌ 缓存未命中", flush=True)
@@ -246,9 +292,12 @@ def generate_weekly_report(
     except Exception as e:
         return [f"❌ 从 Arena 获取数据失败：{str(e)}"]
     
-    school_name, school_data = find_school_in_arena(arena_data, school_keyword)
+    school_name, school_data = find_school_in_arena(arena_data, resolved_school)
     if not school_data:
-        return [f"❌ 未找到学校：'{original_keyword}' 未参加第五届联合杯，或学校名称不匹配。"]
+        # 尝试用原始关键词再搜一次
+        school_name, school_data = find_school_in_arena(arena_data, school_keyword)
+        if not school_data:
+            return [f"❌ 未找到学校：'{original_keyword}' 未参加第五届联合杯，或学校名称不匹配。\n\n💡 提示：发送「学校列表」查看所有参赛学校"]
     
     # ---- 判断模式 ----
     is_single_round = len(target_rounds) == 1
@@ -282,7 +331,7 @@ def generate_weekly_report(
                     last_week_data = None
     
     if last_week_data:
-        last_team = find_school_in_arena(last_week_data, school_keyword)
+        last_team = find_school_in_arena(last_week_data, resolved_school)
         if last_team and last_team[1]:
             last_final_rank = last_team[1].get("final_rank", 0)
     
@@ -405,7 +454,7 @@ def generate_weekly_report(
     
     # ===== 存入缓存 =====
     _report_cache[cache_key] = (messages, time.time())
-    print(f"💾 已缓存战报: {school_keyword} (轮次: {target_rounds})", flush=True)
+    print(f"💾 已缓存战报: {resolved_school} (轮次: {target_rounds})", flush=True)
     
     return messages
 
