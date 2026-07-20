@@ -14,7 +14,7 @@ from agent import run_agent
 # ========== 配置 ==========
 HOST = "0.0.0.0"
 PORT = 8765
-BOT_QQ = 1257934564
+BOT_QQ = 1257934564  # 你的机器人 QQ 号
 
 print(f"🤖 QQ Bot WebSocket 服务启动中...", flush=True)
 print(f"📡 监听地址：ws://{HOST}:{PORT}", flush=True)
@@ -94,7 +94,8 @@ async def handle_message(message_data: dict):
     print(f"📩 收到群消息：{user_input}", flush=True)
 
     try:
-        result = await asyncio.to_thread(run_agent, user_input)
+        # 🔥 传入 user_id 以支持绑定学校功能
+        result = await asyncio.to_thread(run_agent, user_input, str(user_id))
         result = try_parse_list(result)
         return result, message_type, group_id, user_id, user_input
     except Exception as e:
@@ -119,7 +120,6 @@ async def websocket_handler(websocket):
             if data.get("post_type") == "meta_event":
                 continue
 
-            # 接收5个返回值
             reply_content, msg_type, group_id, user_id, user_input = await handle_message(data)
             if reply_content is None:
                 continue
@@ -148,7 +148,7 @@ async def websocket_handler(websocket):
                 await websocket.send(json.dumps(at_reply))
                 await asyncio.sleep(0.5)
 
-                # 2. 发送合并转发
+                # 2. 构建合并转发节点
                 forward_nodes = []
                 for msg in messages_to_send:
                     node = {
