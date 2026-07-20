@@ -128,7 +128,7 @@ def extract_round_numbers(text: str) -> Optional[List[int]]:
 
 
 # ============================================================
-# 2. 🔥 大模型调用（增强版）
+# 2. 大模型调用
 # ============================================================
 
 def call_llm(prompt: str) -> str:
@@ -162,14 +162,13 @@ def call_llm(prompt: str) -> str:
 
 
 # ============================================================
-# 3. 🔥 用大模型解析用户指令
+# 3. 用大模型解析用户指令
 # ============================================================
 
 def parse_with_llm(user_input: str, user_id: str = None) -> dict:
     """
     用大模型解析用户指令，返回结构化的参数
     """
-    # 获取绑定的学校
     bound_school = get_user_school(user_id, default="第二工业") if user_id else "第二工业"
     
     prompt = f"""
@@ -205,7 +204,6 @@ def parse_with_llm(user_input: str, user_id: str = None) -> dict:
     if response is None:
         return {"intent": "error", "message": "大模型不可用"}
     
-    # 尝试提取JSON
     try:
         json_match = re.search(r'\{.*\}', response, re.DOTALL)
         if json_match:
@@ -256,14 +254,151 @@ def get_help_text() -> str:
 
 
 # ============================================================
-# 5. 🔥 核心函数（支持大模型解析）
+# 5. 安全执行代码
+# ============================================================
+
+def safe_execute(code: str, globals_dict: dict = None) -> str:
+    """
+    安全执行代码并捕获输出
+    """
+    if globals_dict is None:
+        globals_dict = {}
+    
+    # 注入必要的函数
+    safe_globals = {
+        "generate_weekly_report_text": generate_weekly_report_text,
+        "datetime": datetime,
+        "os": os,
+        "json": json,
+        "glob": glob,
+        "print": print,
+    }
+    safe_globals.update(globals_dict)
+    
+    import io
+    import sys
+    old_stdout = sys.stdout
+    sys.stdout = io.StringIO()
+    
+    try:
+        # 执行代码
+        exec(code, safe_globals)
+        output = sys.stdout.getvalue()
+        
+        # 过滤掉调试信息
+        debug_prefixes = ['📡', '📊', '📌', '✅', '⏱️', '⚠️', '❌', '🔍', '🔑', '💾']
+        
+        if output.strip():
+            lines = output.split('\n')
+            filtered_lines = []
+            for line in lines:
+                if any(line.startswith(prefix) for prefix in debug_prefixes):
+                    continue
+                filtered_lines.append(line)
+            output = '\n'.join(filtered_lines).strip()
+            return output if output else "执行完成（无输出）"
+        else:
+            # 尝试从 safe_globals 中获取 result
+            result = safe_globals.get('result', None)
+            if isinstance(result, list):
+                return '\n\n'.join(result)
+            elif isinstance(result, str):
+                return result
+            else:
+                return "执行完成（无输出）"
+            
+    except Exception as e:
+        return f"❌ 代码执行出错：{str(e)}"
+    finally:
+        sys.stdout = old_stdout
+
+
+# ============================================================
+# 6. 生成代码
+# ============================================================
+
+def generate_code_with_llm(user_input: str, user_id: str = None) -> str:
+    """
+    生成调用战报函数的代码
+    """
+    school = extract_school_keyword(user_input)
+    
+    if school is None:
+        if user_id:
+            school = get_user_school(user_id, default="第二工业")
+        else:
+            school = "第二工业"
+    
+    week = extract_week_number(user_input)
+    rounds = extract_round_numbers(user_input)
+    
+    # 构建代码模板
+    if week is not None:
+        return f"""
+result = generate_weekly_report_text(school_keyword="{school}", week_number={week})
+if isinstance(result, list):
+    print('\\n\\n'.join(result))
+else:
+    print(result)
+"""
+    elif rounds is not None:
+        return f"""
+result = generate_weekly_report_text(school_keyword="{school}", round_numbers={rounds})
+if isinstance(result, list):
+    print('\\n\\n'.join(result))
+else:
+    print(result)
+"""
+    else:
+        # 调用大模型解析
+        print("--- 调用大模型解析指令 ---")
+        
+        prompt = f"""
+用户输入：{user_input}
+
+请生成Python代码调用 generate_weekly_report_text 函数。
+
+规则：
+1. school_keyword: 从输入中提取学校简称（如"二工大"→"二工大"），没有则用"{school}"
+2. week_number: 如果提到"第X周"、"第一周"、"首周"，提取数字；否则为 None
+3. round_numbers: 如果提到"第X轮"或"第X、Y轮"，提取列表；否则为 None
+
+只返回Python代码，不要任何解释。格式如：
+result = generate_weekly_report_text(school_keyword="二工大", week_number=1)
+if isinstance(result, list):
+    print('\\n\\n'.join(result))
+else:
+    print(result)
+"""
+        
+        code = call_llm(prompt)
+        
+        if code is None:
+            print("⚠️ 大模型不可用，使用本地规则兜底")
+            return f"""
+result = generate_weekly_report_text(school_keyword="{school}")
+if isinstance(result, list):
+    print('\\n\\n'.join(result))
+else:
+    print(result)
+"""
+        
+        code_match = re.search(r'```python\n(.*?)```', code, re.DOTALL)
+        if code_match:
+            return code_match.group(1).strip()
+        
+        return code.strip()
+
+
+# ============================================================
+# 7. 核心函数
 # ============================================================
 
 def run_agent(user_input: str, user_id: str = None) -> str:
     print(f"📩 用户输入：{user_input}")
     print(f"👤 用户ID：{user_id}")
     
-    # ---- 1. 先尝试本地快速匹配 ----
+    # ---- 1. 本地快速匹配 ----
     
     # 绑定学校
     if "绑定学校" in user_input:
@@ -296,48 +431,16 @@ def run_agent(user_input: str, user_id: str = None) -> str:
     
     # ---- 2. 战报生成 ----
     if "生成" in user_input and "战报" in user_input:
-        # 尝试从本地提取参数
-        school = extract_school_keyword(user_input)
-        week = extract_week_number(user_input)
-        rounds = extract_round_numbers(user_input)
+        print("--- 正在生成战报 ---")
+        code = generate_code_with_llm(user_input, user_id)
+        print(f"📄 生成的代码：\n{code}")
         
-        # 如果有学校名称，直接用本地逻辑（快速路径）
-        if school is not None:
-            if week is not None:
-                code = f'print(generate_weekly_report_text(school_keyword="{school}", week_number={week}))'
-            elif rounds is not None:
-                code = f'print(generate_weekly_report_text(school_keyword="{school}", round_numbers={rounds}))'
-            else:
-                code = f'print(generate_weekly_report_text(school_keyword="{school}"))'
-            
-            print("⚡ 使用本地快速路径")
-            return safe_execute(code)
-        
-        # 没有学校名称，尝试用大模型解析
-        print("🤖 使用大模型解析指令")
-        parsed = parse_with_llm(user_input, user_id)
-        
-        if parsed.get("intent") == "error":
-            return f"❌ 解析失败：{parsed.get('message', '未知错误')}"
-        
-        if parsed.get("intent") == "生成战报":
-            school = parsed.get("school", "第二工业")
-            week = parsed.get("week")
-            rounds = parsed.get("rounds")
-            
-            if week is not None:
-                code = f'print(generate_weekly_report_text(school_keyword="{school}", week_number={week}))'
-            elif rounds is not None:
-                code = f'print(generate_weekly_report_text(school_keyword="{school}", round_numbers={rounds}))'
-            else:
-                code = f'print(generate_weekly_report_text(school_keyword="{school}"))'
-            
-            print(f"📊 大模型解析结果：school={school}, week={week}, rounds={rounds}")
-            return safe_execute(code)
-        else:
-            return f"❌ 未能识别为战报指令，请重新输入"
+        print("--- 执行代码 ---")
+        result = safe_execute(code)
+        print(f"📤 执行结果：{result[:200]}...")
+        return result
     
-    # ---- 3. 🔥 其他指令交给大模型 ----
+    # ---- 3. 其他指令交给大模型 ----
     print("🤖 使用大模型处理通用指令")
     
     prompt = f"""
@@ -355,45 +458,6 @@ def run_agent(user_input: str, user_id: str = None) -> str:
         return "抱歉，我暂时无法处理这个请求。\n\n发送「帮助」查看使用说明。"
     
     return response
-
-
-# ============================================================
-# 6. 安全执行代码
-# ============================================================
-
-def safe_execute(code: str, globals_dict: dict = None) -> str:
-    if globals_dict is None:
-        globals_dict = {}
-    
-    globals_dict.update({
-        "generate_weekly_report_text": generate_weekly_report_text,
-        "datetime": datetime,
-        "os": os,
-        "json": json,
-        "glob": glob,
-        "print": print,
-    })
-    
-    import io
-    import sys
-    old_stdout = sys.stdout
-    sys.stdout = io.StringIO()
-    
-    try:
-        exec(code, globals_dict)
-        output = sys.stdout.getvalue()
-        lines = output.split('\n')
-        filtered_lines = []
-        for line in lines:
-            if any(line.startswith(prefix) for prefix in ['📡', '📊', '📌', '✅', '⏱️', '⚠️', '❌']):
-                continue
-            filtered_lines.append(line)
-        output = '\n'.join(filtered_lines).strip()
-        return output if output else "执行完成（无输出）"
-    except Exception as e:
-        return f"代码执行出错：{str(e)}"
-    finally:
-        sys.stdout = old_stdout
 
 
 # ============================================================
