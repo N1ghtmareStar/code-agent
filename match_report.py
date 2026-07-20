@@ -1,5 +1,6 @@
 import os
 import re
+import time
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -183,23 +184,27 @@ def format_details_from_arena(details: List[dict], rank_bonus: Dict[int, int]) -
 
 
 # ============================================================
-# 🔥 新增：消息截断（防止长战报被QQ吞掉）
+# 消息截断（防止长战报被QQ吞掉）
 # ============================================================
-MAX_MSG_LENGTH = 1800  # QQ群消息限制约2000字，留200字余量
+MAX_MSG_LENGTH = 1800
 
 
 def truncate_message(msg: str) -> str:
-    """截断过长的消息"""
     if len(msg) <= MAX_MSG_LENGTH:
         return msg
     return msg[:MAX_MSG_LENGTH - 50] + "\n\n... (内容过长已截断)"
 
 
 # ============================================================
-# 🔥 新增：统一异常处理
+# 🔥 按学校缓存战报
 # ============================================================
-class ReportError(Exception):
-    pass
+_report_cache = {}
+CACHE_TTL = 300  # 5分钟
+
+
+def get_report_cache_key(school: str, week: Optional[int], rounds: Optional[List[int]]) -> str:
+    rounds_str = ",".join(map(str, rounds)) if rounds else "auto"
+    return f"{school}_{week}_{rounds_str}"
 
 
 def generate_weekly_report(
@@ -210,7 +215,7 @@ def generate_weekly_report(
     title: Optional[str] = None
 ) -> List[str]:
     """
-    生成战报
+    生成战报（带按学校缓存）
     """
     original_keyword = school_keyword
     
@@ -222,6 +227,15 @@ def generate_weekly_report(
     else:
         target_rounds = get_latest_completed_rounds(2)
     
+    # ===== 检查缓存 =====
+    cache_key = get_report_cache_key(school_keyword, week_number, round_numbers)
+    if cache_key in _report_cache:
+        cached_data, timestamp = _report_cache[cache_key]
+        if time.time() - timestamp < CACHE_TTL:
+            print(f"📦 使用缓存的战报: {school_keyword}")
+            return cached_data
+    
+    # ===== 获取数据 =====
     try:
         arena_data = fetch_weekly_report_data(target_rounds)
     except Exception as e:
@@ -381,8 +395,12 @@ def generate_weekly_report(
 
     messages = [msg1, msg2, msg3]
     
-    # 🔥 截断过长消息
+    # 截断过长消息
     messages = [truncate_message(msg) for msg in messages]
+    
+    # ===== 存入缓存 =====
+    _report_cache[cache_key] = (messages, time.time())
+    print(f"💾 已缓存战报: {school_keyword}")
     
     return messages
 
