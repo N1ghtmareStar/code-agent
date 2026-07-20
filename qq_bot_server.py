@@ -4,6 +4,7 @@ import websockets
 import sys
 import os
 import ast
+import re
 
 # 添加当前目录到 Python 路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -13,7 +14,7 @@ from agent import run_agent
 # ========== 配置 ==========
 HOST = "0.0.0.0"
 PORT = 8765
-BOT_QQ = 1257934564  # 你的机器人 QQ 号（务必填写真实号码）
+BOT_QQ = 1257934564  # 你的机器人 QQ 号
 
 print(f"🤖 QQ Bot WebSocket 服务启动中...", flush=True)
 print(f"📡 监听地址：ws://{HOST}:{PORT}", flush=True)
@@ -49,7 +50,6 @@ def extract_text_without_at(message_data: dict) -> str:
 
 # ========== 尝试将字符串解析为列表 ==========
 def try_parse_list(content):
-    """如果 content 是类似 "['msg1', 'msg2']" 的字符串，尝试解析为列表"""
     if isinstance(content, str):
         stripped = content.strip()
         if stripped.startswith("[") and stripped.endswith("]"):
@@ -62,9 +62,24 @@ def try_parse_list(content):
     return content
 
 
+# ========== 生成动态提醒文本 ==========
+def generate_at_text(user_input: str) -> str:
+    """根据用户输入生成动态提醒文本"""
+    if "战报" in user_input:
+        # 提取周数
+        week_match = re.search(r'第(\d+)周', user_input)
+        if week_match:
+            return f" 您要的第{week_match.group(1)}周战报已生成，请查看下方聊天记录 👇"
+        # 提取轮数
+        round_match = re.search(r'第([\d、,，\-到]+)轮', user_input)
+        if round_match:
+            return f" 您要的第{round_match.group(1)}轮战报已生成，请查看下方聊天记录 👇"
+        return " 您要的战报已生成，请查看下方聊天记录 👇"
+    return " 您要的结果已生成，请查看下方聊天记录 👇"
+
+
 # ========== 处理单条消息 ==========
 async def handle_message(message_data: dict):
-    """处理消息，返回 (回复内容, 消息类型, 群号/用户ID, 调用者QQ)"""
     message_type = message_data.get("message_type")
     user_id = message_data.get("user_id")
     group_id = message_data.get("group_id")
@@ -84,11 +99,11 @@ async def handle_message(message_data: dict):
     try:
         result = await asyncio.to_thread(run_agent, user_input)
         result = try_parse_list(result)
-        return result, message_type, group_id, user_id
+        return result, message_type, group_id, user_id, user_input
     except Exception as e:
         error_msg = f"❌ 处理出错：{str(e)}"
         print(error_msg, flush=True)
-        return error_msg, message_type, group_id, user_id
+        return error_msg, message_type, group_id, user_id, user_input
 
 
 # ========== WebSocket 服务端 ==========
@@ -107,11 +122,10 @@ async def websocket_handler(websocket):
             if data.get("post_type") == "meta_event":
                 continue
 
-            reply_content, msg_type, group_id, user_id = await handle_message(data)
+            reply_content, msg_type, group_id, user_id, user_input = await handle_message(data)
             if reply_content is None:
                 continue
 
-            # 强制转换为列表
             if isinstance(reply_content, str):
                 messages_to_send = [reply_content]
             elif isinstance(reply_content, list):
@@ -120,11 +134,11 @@ async def websocket_handler(websocket):
                 messages_to_send = [str(reply_content)]
 
             if msg_type == "group" and group_id:
-                # ---- 新增：合并转发发送逻辑 ----
-                # 1. 先发送一条 @ 提醒（不含具体内容）
+                # 1. 生成动态 @ 提醒
+                at_text = generate_at_text(user_input)
                 at_segments = [
                     {"type": "at", "data": {"qq": user_id}},
-                    {"type": "text", "data": {"text": " 您要的战报已生成，请查看下方聊天记录 👇"}}
+                    {"type": "text", "data": {"text": at_text}}
                 ]
                 at_reply = {
                     "action": "send_group_msg",
@@ -134,7 +148,7 @@ async def websocket_handler(websocket):
                     }
                 }
                 await websocket.send(json.dumps(at_reply))
-                await asyncio.sleep(0.5)  # 短暂延迟，确保提醒先到达
+                await asyncio.sleep(0.5)
 
                 # 2. 构建合并转发节点
                 forward_nodes = []
@@ -142,14 +156,13 @@ async def websocket_handler(websocket):
                     node = {
                         "type": "node",
                         "data": {
-                            "name": "战报机器人",          # 聊天记录中显示的名称
-                            "uin": str(BOT_QQ),            # 必须为真实机器人 QQ 号
-                            "content": msg                 # 每条消息的纯文本内容
+                            "name": "战报机器人",
+                            "uin": str(BOT_QQ),
+                            "content": msg
                         }
                     }
                     forward_nodes.append(node)
 
-                # 3. 发送合并转发消息
                 forward_data = {
                     "action": "send_group_forward_msg",
                     "params": {
@@ -161,7 +174,6 @@ async def websocket_handler(websocket):
                 print(f"✅ 已发送合并转发（共 {len(messages_to_send)} 条消息）", flush=True)
 
             elif msg_type == "private":
-                # 私聊仍使用普通文本（按原逻辑，多消息用换行拼接）
                 reply_data = {
                     "action": "send_private_msg",
                     "params": {
