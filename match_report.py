@@ -301,6 +301,17 @@ def generate_weekly_report(
     east_detail = format_details_from_arena(east_details, EAST_RANK_BONUS)
     south_detail = format_details_from_arena(south_details, SOUTH_RANK_BONUS)
     
+    # 🔥 从当前轮次明细中统计顺位（而不是用累计值）
+    east_rank_1 = sum(1 for d in east_details if d.get("rank") == 1)
+    east_rank_2 = sum(1 for d in east_details if d.get("rank") == 2)
+    east_rank_3 = sum(1 for d in east_details if d.get("rank") == 3)
+    east_rank_4 = sum(1 for d in east_details if d.get("rank") == 4)
+    
+    south_rank_1 = sum(1 for d in south_details if d.get("rank") == 1)
+    south_rank_2 = sum(1 for d in south_details if d.get("rank") == 2)
+    south_rank_3 = sum(1 for d in south_details if d.get("rank") == 3)
+    south_rank_4 = sum(1 for d in south_details if d.get("rank") == 4)
+    
     # ===== 消息1：总览 =====
     msg1 = f"""📊 第五届联合杯 · {week_title}
 
@@ -318,7 +329,7 @@ def generate_weekly_report(
     # ===== 消息2：东风赛道 =====
     east_total = east.get('total_score', 0.0)
     msg2 = f"""🀀 东风赛道：{east_total:.1f} 分（{east_round_total:+.1f}）
-•  顺位：1位{east.get('rank_1', 0)}次 / 2位{east.get('rank_2', 0)}次 / 3位{east.get('rank_3', 0)}次 / 4位{east.get('rank_4', 0)}次
+•  顺位：1位{east_rank_1}次 / 2位{east_rank_2}次 / 3位{east_rank_3}次 / 4位{east_rank_4}次
 
 ─────────────────────────────
 📌 {round_label}明细（东风）：
@@ -327,7 +338,7 @@ def generate_weekly_report(
     # ===== 消息3：半庄赛道 =====
     south_total = south.get('total_score', 0.0)
     msg3 = f"""🀁 半庄赛道：{south_total:.1f} 分（{south_round_total:+.1f}）
-•  顺位：1位{south.get('rank_1', 0)}次 / 2位{south.get('rank_2', 0)}次 / 3位{south.get('rank_3', 0)}次 / 4位{south.get('rank_4', 0)}次
+•  顺位：1位{south_rank_1}次 / 2位{south_rank_2}次 / 3位{south_rank_3}次 / 4位{south_rank_4}次
 
 ─────────────────────────────
 📌 {round_label}明细（半庄）：
