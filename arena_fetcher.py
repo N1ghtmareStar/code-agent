@@ -16,10 +16,7 @@ SOUTH_TRACK_ID = "6a526941f78ec7d0138baa33"
 # ============================================================
 # 顺位点（规则书第3.1、3.2节）
 # ============================================================
-# 东风战：1位+27，2位+3，3位-9，4位-21
 EAST_RANK_BONUS = {1: 27, 2: 3, 3: -9, 4: -21}
-
-# 半庄战：1位+45，2位+5，3位-15，4位-35
 SOUTH_RANK_BONUS = {1: 45, 2: 5, 3: -15, 4: -35}
 
 # 学校名称修正映射
@@ -33,6 +30,14 @@ SCHOOL_NAME_FIX = {
     "西北农林科技大": "西北农林科技大学",
     "中南财经政法大": "中南财经政法大学",
     "对外经济贸易大": "对外经济贸易大学",
+}
+
+# 每周对应的轮次（常规赛：每周2轮）
+WEEK_ROUNDS = {
+    1: [1, 2],
+    2: [3, 4],
+    3: [5, 6],
+    4: [7, 8],
 }
 
 
@@ -93,12 +98,47 @@ def calc_single_game_score(score: int, rank: int, rank_bonus: Dict[int, int]) ->
 
 
 # ============================================================
-# 数据解析：按赛道、轮次聚合
+# 获取已完成轮次
 # ============================================================
 
-def parse_rounds_and_scores(data: dict, track_id: str, rank_bonus: Dict[int, int]) -> Dict[int, Dict[str, dict]]:
+def get_latest_completed_rounds(round_count: int = 2) -> List[int]:
     """
-    解析指定赛道，返回 { 轮次: { 队伍ID: {"total_score": 总分, "rank": 顺位, "details": [...] } } }
+    获取最近已完成的轮次（status == 'finished'）
+    """
+    east_data = fetch_score_view(EAST_SCORE_VIEW_ID)
+    completed_rounds = []
+    
+    # 从 rounds 中获取状态为 finished 的轮次
+    for round_info in east_data.get("rounds", []):
+        round_num = round_info.get("number")
+        status = round_info.get("status")
+        if round_num is not None and status == "finished":
+            completed_rounds.append(round_num)
+    
+    sorted_rounds = sorted(completed_rounds)
+    # 返回最近的 round_count 轮
+    return sorted_rounds[-round_count:] if sorted_rounds else []
+
+
+def get_rounds_for_week(week_number: int) -> List[int]:
+    """
+    根据周数获取对应的轮次
+    """
+    if week_number in WEEK_ROUNDS:
+        return WEEK_ROUNDS[week_number]
+    # 如果周数超出定义范围，尝试计算：第1周=1,2轮，第2周=3,4轮，以此类推
+    start_round = (week_number - 1) * 2 + 1
+    return [start_round, start_round + 1]
+
+
+# ============================================================
+# 数据解析：按赛道、轮次聚合（支持轮次过滤）
+# ============================================================
+
+def parse_rounds_and_scores(data: dict, track_id: str, rank_bonus: Dict[int, int], round_filter: Optional[List[int]] = None) -> Dict[int, Dict[str, dict]]:
+    """
+    解析指定赛道，支持按轮次过滤
+    round_filter: 指定要包含的轮次列表，如 [1, 2, 3, 4]
     """
     round_data = defaultdict(lambda: defaultdict(lambda: {"total_score": 0.0, "rank": 0, "details": []}))
     stages = data.get("stages", [])
@@ -110,6 +150,10 @@ def parse_rounds_and_scores(data: dict, track_id: str, rank_bonus: Dict[int, int
         
         round_num = match.get("roundNumber")
         if round_num is None:
+            continue
+        
+        # 如果指定了轮次过滤，跳过不在列表中的轮次
+        if round_filter is not None and round_num not in round_filter:
             continue
         
         for game in match.get("games", []):
@@ -170,13 +214,19 @@ def calculate_team_scores(round_data: Dict[int, Dict[str, dict]]) -> Dict[str, d
 # 主函数
 # ============================================================
 
-def fetch_weekly_report_data() -> dict:
+def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
+    """
+    从 Arena 获取数据，支持按轮次过滤
+    round_filter: 指定要包含的轮次列表，如 [1, 2] 表示第1、2轮
+    """
     print("📊 开始从 Arena 获取数据...")
+    if round_filter:
+        print(f"📌 过滤轮次: 第 {', '.join(map(str, round_filter))} 轮")
     
     east_data, south_data, participants = fetch_contest_data()
     
-    east_rounds = parse_rounds_and_scores(east_data, EAST_TRACK_ID, EAST_RANK_BONUS)
-    south_rounds = parse_rounds_and_scores(south_data, SOUTH_TRACK_ID, SOUTH_RANK_BONUS)
+    east_rounds = parse_rounds_and_scores(east_data, EAST_TRACK_ID, EAST_RANK_BONUS, round_filter)
+    south_rounds = parse_rounds_and_scores(south_data, SOUTH_TRACK_ID, SOUTH_RANK_BONUS, round_filter)
     
     east_scores = calculate_team_scores(east_rounds)
     south_scores = calculate_team_scores(south_rounds)
@@ -223,23 +273,25 @@ def fetch_weekly_report_data() -> dict:
 
 if __name__ == "__main__":
     try:
-        data = fetch_weekly_report_data()
-        print("\n" + "="*50)
+        print("\n=== 测试1：获取最新两轮 ===")
+        latest_rounds = get_latest_completed_rounds(2)
+        print(f"📌 最新已完成轮次: {latest_rounds}")
+        data = fetch_weekly_report_data(latest_rounds)
         print(f"📋 比赛: {data['contest_name']}")
-        print(f"🔄 当前轮次: 第 {data['current_round']} 轮")
+        print(f"📌 包含轮次: {latest_rounds}")
         print(f"🏫 参赛队伍: {len(data['teams'])} 个")
-        print("\n🏆 当前排名 TOP 10:")
-        for rank, (pid, score) in enumerate(data['rankings'][:10], 1):
-            name = data['teams'][pid]['name']
-            print(f"  {rank}. {name} - {score:.1f} 分")
         
-        print("\n🔍 检查上海第二工业大学:")
+        # 检查上海第二工业大学
         for pid, team in data['teams'].items():
             if "第二工业" in team['name']:
-                print(f"  ✅ 找到: {team['name']}")
-                print(f"     总分: {team['total_score']:.1f}")
-                print(f"     东风: {team['east']['total_score']:.1f}  {team['east']['details']}")
-                print(f"     半庄: {team['south']['total_score']:.1f}  {team['south']['details']}")
+                print(f"  ✅ {team['name']}: {team['total_score']:.1f} 分")
+        
+        print("\n=== 测试2：获取第1周战报（第1、2轮）===")
+        week1_rounds = get_rounds_for_week(1)
+        data_week1 = fetch_weekly_report_data(week1_rounds)
+        for pid, team in data_week1['teams'].items():
+            if "第二工业" in team['name']:
+                print(f"  ✅ {team['name']}: {team['total_score']:.1f} 分")
         
         with open("arena_data.json", "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
