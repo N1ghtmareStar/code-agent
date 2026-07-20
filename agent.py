@@ -254,17 +254,17 @@ def get_help_text() -> str:
 
 
 # ============================================================
-# 5. 安全执行代码
+# 5. 🔥 安全执行代码（返回列表，支持合并转发）
 # ============================================================
 
-def safe_execute(code: str, globals_dict: dict = None) -> str:
+def safe_execute(code: str, globals_dict: dict = None):
     """
-    安全执行代码并捕获输出
+    安全执行代码并返回结果
+    返回值：如果是战报，返回列表；否则返回字符串
     """
     if globals_dict is None:
         globals_dict = {}
     
-    # 注入必要的函数
     safe_globals = {
         "generate_weekly_report_text": generate_weekly_report_text,
         "datetime": datetime,
@@ -281,31 +281,21 @@ def safe_execute(code: str, globals_dict: dict = None) -> str:
     sys.stdout = io.StringIO()
     
     try:
-        # 执行代码
         exec(code, safe_globals)
         output = sys.stdout.getvalue()
         
-        # 过滤掉调试信息
-        debug_prefixes = ['📡', '📊', '📌', '✅', '⏱️', '⚠️', '❌', '🔍', '🔑', '💾']
-        
+        # 检查是否有输出
         if output.strip():
-            lines = output.split('\n')
-            filtered_lines = []
-            for line in lines:
-                if any(line.startswith(prefix) for prefix in debug_prefixes):
-                    continue
-                filtered_lines.append(line)
-            output = '\n'.join(filtered_lines).strip()
-            return output if output else "执行完成（无输出）"
-        else:
-            # 尝试从 safe_globals 中获取 result
-            result = safe_globals.get('result', None)
-            if isinstance(result, list):
-                return '\n\n'.join(result)
-            elif isinstance(result, str):
-                return result
-            else:
-                return "执行完成（无输出）"
+            # 尝试按空行分割，检测是否是战报
+            parts = re.split(r'\n{2,}', output.strip())
+            # 如果包含"参赛学校"和"东风赛道"，说明是战报
+            if len(parts) > 1 and '参赛学校' in output and '东风赛道' in output:
+                return parts
+            return output.strip()
+        
+        # 尝试获取 result 变量
+        result = safe_globals.get('result', None)
+        return result
             
     except Exception as e:
         return f"❌ 代码执行出错：{str(e)}"
@@ -314,7 +304,7 @@ def safe_execute(code: str, globals_dict: dict = None) -> str:
 
 
 # ============================================================
-# 6. 生成代码
+# 6. 🔥 生成代码（不 print，赋值给变量）
 # ============================================================
 
 def generate_code_with_llm(user_input: str, user_id: str = None) -> str:
@@ -332,22 +322,14 @@ def generate_code_with_llm(user_input: str, user_id: str = None) -> str:
     week = extract_week_number(user_input)
     rounds = extract_round_numbers(user_input)
     
-    # 构建代码模板
+    # 构建代码模板 - 赋值给 result，不 print
     if week is not None:
         return f"""
 result = generate_weekly_report_text(school_keyword="{school}", week_number={week})
-if isinstance(result, list):
-    print('\\n\\n'.join(result))
-else:
-    print(result)
 """
     elif rounds is not None:
         return f"""
 result = generate_weekly_report_text(school_keyword="{school}", round_numbers={rounds})
-if isinstance(result, list):
-    print('\\n\\n'.join(result))
-else:
-    print(result)
 """
     else:
         # 调用大模型解析
@@ -365,10 +347,6 @@ else:
 
 只返回Python代码，不要任何解释。格式如：
 result = generate_weekly_report_text(school_keyword="二工大", week_number=1)
-if isinstance(result, list):
-    print('\\n\\n'.join(result))
-else:
-    print(result)
 """
         
         code = call_llm(prompt)
@@ -377,10 +355,6 @@ else:
             print("⚠️ 大模型不可用，使用本地规则兜底")
             return f"""
 result = generate_weekly_report_text(school_keyword="{school}")
-if isinstance(result, list):
-    print('\\n\\n'.join(result))
-else:
-    print(result)
 """
         
         code_match = re.search(r'```python\n(.*?)```', code, re.DOTALL)
@@ -391,10 +365,10 @@ else:
 
 
 # ============================================================
-# 7. 核心函数
+# 7. 🔥 核心函数
 # ============================================================
 
-def run_agent(user_input: str, user_id: str = None) -> str:
+def run_agent(user_input: str, user_id: str = None):
     print(f"📩 用户输入：{user_input}")
     print(f"👤 用户ID：{user_id}")
     
@@ -437,8 +411,12 @@ def run_agent(user_input: str, user_id: str = None) -> str:
         
         print("--- 执行代码 ---")
         result = safe_execute(code)
-        print(f"📤 执行结果：{result[:200]}...")
-        return result
+        print(f"📤 执行结果类型：{type(result)}")
+        
+        # 🔥 如果结果是列表，直接返回列表（用于合并转发）
+        if isinstance(result, list):
+            return result
+        return str(result)
     
     # ---- 3. 其他指令交给大模型 ----
     print("🤖 使用大模型处理通用指令")

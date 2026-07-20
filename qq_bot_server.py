@@ -204,13 +204,13 @@ async def handle_message(message_data: dict, websocket):
 
     print(f"📩 收到群消息：{user_input}", flush=True)
 
-    # ===== 🔥 战报指令处理 =====
+    # ===== 战报指令处理 =====
     if re.search(r'战报|生成战报', user_input):
         school = extract_school_from_input(user_input)
         week = extract_week_from_input(user_input)
         rounds = extract_rounds_from_input(user_input)
         
-        # 🔥 判断是本地规则还是需要大模型
+        # 判断是本地规则还是需要大模型
         if school is not None:
             # ===== 本地规则路径（不显示"正在查询"） =====
             print(f"⚡ 本地规则处理，学校：{school}", flush=True)
@@ -245,12 +245,12 @@ async def handle_message(message_data: dict, websocket):
             try:
                 # 调用 agent.py 处理（会调用大模型）
                 result = await asyncio.to_thread(run_agent, user_input, str(user_id))
-                result = try_parse_list(result)
                 
+                # 🔥 检查结果类型，支持合并转发
                 if isinstance(result, list):
                     await send_forward_message(websocket, group_id, user_id, user_input, result)
                 else:
-                    await send_group_message(websocket, group_id, result)
+                    await send_group_message(websocket, group_id, str(result))
                 
                 return
             except Exception as e:
@@ -262,12 +262,11 @@ async def handle_message(message_data: dict, websocket):
     # ===== 非战报指令，直接交给 agent.py =====
     try:
         result = await asyncio.to_thread(run_agent, user_input, str(user_id))
-        result = try_parse_list(result)
         
         if isinstance(result, list):
             await send_forward_message(websocket, group_id, user_id, user_input, result)
         else:
-            await send_group_message(websocket, group_id, result)
+            await send_group_message(websocket, group_id, str(result))
         
     except Exception as e:
         error_msg = f"❌ 处理出错：{str(e)}"
