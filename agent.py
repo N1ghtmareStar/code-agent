@@ -5,6 +5,12 @@ import glob
 import requests
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+from dotenv import load_dotenv
+
+# ============================================================
+# 加载 .env 文件
+# ============================================================
+load_dotenv()
 
 from match_report import generate_weekly_report_text
 
