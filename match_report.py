@@ -264,8 +264,10 @@ def generate_weekly_report(
         round_str = f"第{target_rounds[0]}-{target_rounds[-1]}轮" if len(target_rounds) > 1 else f"第{target_rounds[0]}轮"
         week_title = f"{round_str}战报"
     
-    east_details = east.get("details", [])
-    south_details = south.get("details", [])
+    # 🔥 过滤明细，只保留当前轮次
+    east_details = [d for d in east.get("details", []) if d.get("round") in target_rounds]
+    south_details = [d for d in south.get("details", []) if d.get("round") in target_rounds]
+    
     east_detail = format_details_from_arena(east_details, EAST_RANK_BONUS)
     south_detail = format_details_from_arena(south_details, SOUTH_RANK_BONUS)
     
