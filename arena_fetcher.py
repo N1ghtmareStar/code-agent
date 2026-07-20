@@ -212,7 +212,7 @@ def parse_rounds_and_scores(data: dict, track_id: str, rank_bonus: Dict[int, int
                 if pid:
                     single_score = calc_single_game_score(score, rank, rank_bonus)
                     round_data[round_num][pid]["total_score"] += single_score
-                    round_data[round_num][pid]["rank"] = rank
+                    # 这里不用再存储整轮的rank，我们将从details中统计
                     round_data[round_num][pid]["details"].append({
                         "player_name": player_name,
                         "score": score,
@@ -238,21 +238,24 @@ def calculate_team_scores(round_data: Dict[int, Dict[str, dict]]) -> Dict[str, d
     for round_num, participants in round_data.items():
         for pid, data in participants.items():
             total = data["total_score"]
-            rank = data["rank"]
             details = data["details"]
             
             team_data[pid]["total_score"] += total
             team_data[pid]["round_scores"][round_num] = total
             team_data[pid]["details"].extend(details)
-            
+    
+    # 统计顺位：遍历所有详情
+    for pid, data in team_data.items():
+        for detail in data["details"]:
+            rank = detail.get("rank")
             if rank == 1:
-                team_data[pid]["rank_1"] += 1
+                data["rank_1"] += 1
             elif rank == 2:
-                team_data[pid]["rank_2"] += 1
+                data["rank_2"] += 1
             elif rank == 3:
-                team_data[pid]["rank_3"] += 1
+                data["rank_3"] += 1
             elif rank == 4:
-                team_data[pid]["rank_4"] += 1
+                data["rank_4"] += 1
     
     return dict(team_data)
 
@@ -298,7 +301,6 @@ def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
             "total_score": round(total, 1)
         }
     
-    # 生成排名
     sorted_teams = sorted(
         result["teams"].items(),
         key=lambda x: x[1]["total_score"],
@@ -312,10 +314,10 @@ def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
     
     result["rankings"] = rankings
     
-    # 🔥 获取晋级线（第32名分数）
+    # 获取晋级线（第32名分数）
     promotion_line = 0.0
     if len(rankings) >= 32:
-        promotion_line = rankings[31][1]  # 第32名
+        promotion_line = rankings[31][1]
         debug_print(f"🔍 晋级线（第32名）：{promotion_line:.1f} 分")
     else:
         debug_print(f"⚠️ 排名数据不足32条，当前只有 {len(rankings)} 条")
@@ -331,7 +333,6 @@ def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
 # ============================================================
 
 if __name__ == "__main__":
-    # 开启调试输出
     import arena_fetcher
     arena_fetcher.DEBUG = True
     
@@ -350,7 +351,9 @@ if __name__ == "__main__":
                 print(f"✅ {team['name']}:")
                 print(f"   总累计: {team['total_score']:.1f}")
                 print(f"   东风累计: {team['east']['total_score']:.1f}")
+                print(f"   东风顺位: 1位{team['east']['rank_1']}次 / 2位{team['east']['rank_2']}次 / 3位{team['east']['rank_3']}次 / 4位{team['east']['rank_4']}次")
                 print(f"   半庄累计: {team['south']['total_score']:.1f}")
+                print(f"   半庄顺位: 1位{team['south']['rank_1']}次 / 2位{team['south']['rank_2']}次 / 3位{team['south']['rank_3']}次 / 4位{team['south']['rank_4']}次")
         
     except Exception as e:
         print(f"❌ 错误: {e}")
