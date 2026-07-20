@@ -23,7 +23,13 @@ def extract_school_keyword(text: str, default: str = "第二工业") -> str:
     cleaned = re.sub(r'[一二三四五六七八九十]+周', '', cleaned)
     # 移除 "第一轮"、"第二轮" 等中文轮数
     cleaned = re.sub(r'[一二三四五六七八九十]+轮', '', cleaned)
+    # 移除残留的 "第" 字（如 "二工大第" -> "二工大"）
+    cleaned = re.sub(r'第$', '', cleaned)
     cleaned = cleaned.strip()
+    
+    # 如果 cleaned 为空，返回默认值
+    if not cleaned:
+        return default
     
     patterns = [
         r"生成(.+?)战报",
@@ -41,7 +47,6 @@ def extract_school_keyword(text: str, default: str = "第二工业") -> str:
                 return keyword
     
     # 如果没有匹配到，尝试直接提取学校简称
-    # 匹配 "二工大"、"北大" 等2-4个字符的学校简称
     school_match = re.search(r'([\u4e00-\u9fa5]{2,4}大?)', cleaned)
     if school_match:
         return school_match.group(1)
