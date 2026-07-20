@@ -9,137 +9,73 @@ from match_report import generate_weekly_report_text
 
 
 # ============================================================
-# 1. 工具函数
+# 1. 工具函数（简化为只做基本清理）
 # ============================================================
 
 def extract_school_keyword(text: str, default: str = "第二工业") -> str:
-    # 先移除周数和轮数信息
-    cleaned = text
-    # 移除 "第X周"
-    cleaned = re.sub(r'第\d+周', '', cleaned)
-    # 移除 "第X、Y轮" 或 "第X-Y轮"
+    """简单提取学校关键词，其余交给大模型"""
+    # 移除"生成"和"战报"字样
+    cleaned = text.replace("生成", "").replace("战报", "").strip()
+    # 移除"第X周"、"第X轮"等
+    cleaned = re.sub(r'第[\d一二三四五六七八九十]+周', '', cleaned)
     cleaned = re.sub(r'第[\d、,，\-到]+轮', '', cleaned)
-    # 移除 "第一周"、"第二周" 等中文周数
     cleaned = re.sub(r'[一二三四五六七八九十]+周', '', cleaned)
-    # 移除 "第一轮"、"第二轮" 等中文轮数
     cleaned = re.sub(r'[一二三四五六七八九十]+轮', '', cleaned)
-    # 移除残留的 "第" 字（如 "二工大第" -> "二工大"）
-    cleaned = re.sub(r'第$', '', cleaned)
     cleaned = cleaned.strip()
     
-    # 如果 cleaned 为空，返回默认值
     if not cleaned:
         return default
     
-    patterns = [
-        r"生成(.+?)战报",
-        r"战报(.+?)学校",
-        r"查询(.+?)战报",
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, cleaned)
-        if match:
-            keyword = match.group(1).strip()
-            if keyword in ["生成", "战报", "的", "个"]:
-                continue
-            if len(keyword) >= 2 and not re.search(r'[^a-zA-Z\u4e00-\u9fa5]', keyword):
-                return keyword
-    
-    # 如果没有匹配到，尝试直接提取学校简称
-    school_match = re.search(r'([\u4e00-\u9fa5]{2,4}大?)', cleaned)
-    if school_match:
-        return school_match.group(1)
+    # 提取2-4个字符的学校简称
+    match = re.search(r'([\u4e00-\u9fa5]{2,4}大?)', cleaned)
+    if match:
+        return match.group(1)
     
     return default
 
 
 def extract_week_number(text: str) -> Optional[int]:
-    """从用户输入中提取周数，如 '第1周'、'第一周'、'第2周' """
-    # 匹配 "第1周"
-    pattern1 = r'第(\d+)周'
-    match = re.search(pattern1, text)
+    """提取周数，支持"第1周"和"第一周" """
+    # "第1周"
+    match = re.search(r'第(\d+)周', text)
     if match:
         return int(match.group(1))
-    
-    # 匹配 "第一周"、"第二周" 等中文数字
-    chinese_num_map = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
-    pattern2 = r'([一二三四五六七八九十]+)周'
-    match = re.search(pattern2, text)
+    # "第一周"
+    chinese_map = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+    match = re.search(r'([一二三四五六七八九十]+)周', text)
     if match:
-        chinese = match.group(1)
-        if chinese in chinese_num_map:
-            return chinese_num_map[chinese]
-        # 处理 "十" 的组合
-        if chinese == "十":
-            return 10
-        if chinese == "十一":
-            return 11
-        if chinese == "十二":
-            return 12
-    
+        ch = match.group(1)
+        if ch in chinese_map:
+            return chinese_map[ch]
     return None
 
 
 def extract_round_numbers(text: str) -> Optional[List[int]]:
-    """从用户输入中提取轮次，如 '第1轮'、'第3、4轮'、'第1-2轮' """
-    # 匹配 "第1、2轮" 或 "第1,2轮"
-    pattern1 = r'第([\d、,，]+)轮'
-    match = re.search(pattern1, text)
+    """提取轮次，支持"第1轮"、"第1、2轮"、"第1-2轮" """
+    # "第1、2轮"
+    match = re.search(r'第([\d、,，]+)轮', text)
     if match:
         parts = re.split(r'[、,，]', match.group(1))
-        rounds = []
-        for p in parts:
-            p = p.strip()
-            if p and p.isdigit():
-                rounds.append(int(p))
+        rounds = [int(p.strip()) for p in parts if p.strip().isdigit()]
         if rounds:
             return rounds
-    
-    # 匹配 "第1-2轮" 或 "第1到2轮"
-    pattern2 = r'第(\d+)[-到](\d+)轮'
-    match = re.search(pattern2, text)
+    # "第1-2轮"
+    match = re.search(r'第(\d+)[-到](\d+)轮', text)
     if match:
-        start = int(match.group(1))
-        end = int(match.group(2))
-        return list(range(start, end + 1))
-    
-    # 匹配 "第1轮"（单轮）
-    pattern3 = r'第(\d+)轮'
-    match = re.search(pattern3, text)
+        return list(range(int(match.group(1)), int(match.group(2)) + 1))
+    # "第1轮"
+    match = re.search(r'第(\d+)轮', text)
     if match:
         return [int(match.group(1))]
-    
     return None
 
 
-def generate_code_with_llm(user_input: str) -> str:
-    """使用大模型生成代码（模拟）"""
-    if "战报" in user_input:
-        school_keyword = extract_school_keyword(user_input, default="第二工业")
-        
-        week_num = extract_week_number(user_input)
-        if week_num is not None:
-            return f"""
-print(generate_weekly_report_text(school_keyword="{school_keyword}", week_number={week_num}))
-"""
-        
-        round_nums = extract_round_numbers(user_input)
-        if round_nums is not None:
-            return f"""
-print(generate_weekly_report_text(school_keyword="{school_keyword}", round_numbers={round_nums}))
-"""
-        
-        return f"""
-print(generate_weekly_report_text(school_keyword="{school_keyword}"))
-"""
-    
-    return """
-print("抱歉，我暂时无法处理这个请求。")
-"""
-
+# ============================================================
+# 2. 核心函数
+# ============================================================
 
 def safe_execute(code: str, globals_dict: dict = None) -> str:
+    """安全执行生成的代码"""
     if globals_dict is None:
         globals_dict = {}
     
@@ -167,59 +103,70 @@ def safe_execute(code: str, globals_dict: dict = None) -> str:
         sys.stdout = old_stdout
 
 
+def generate_code_with_llm(user_input: str) -> str:
+    """
+    大模型生成代码（模拟）
+    实际部署时，这里调用真实的大模型API
+    """
+    # 先用本地规则简单解析，作为备用
+    school = extract_school_keyword(user_input, default="第二工业")
+    week = extract_week_number(user_input)
+    rounds = extract_round_numbers(user_input)
+    
+    # 构建代码
+    if week is not None:
+        return f"""
+print(generate_weekly_report_text(school_keyword="{school}", week_number={week}))
+"""
+    elif rounds is not None:
+        return f"""
+print(generate_weekly_report_text(school_keyword="{school}", round_numbers={rounds}))
+"""
+    else:
+        return f"""
+print(generate_weekly_report_text(school_keyword="{school}"))
+"""
+
+
 def run_agent(user_input: str) -> str:
+    """主处理函数"""
     print(f"用户输入：{user_input}")
     
+    # 检查是否与战报相关
     if "生成" in user_input and "战报" in user_input:
-        school_keyword = extract_school_keyword(user_input, default="第二工业")
+        print("--- 正在生成战报 ---")
         
-        week_num = extract_week_number(user_input)
-        if week_num is not None:
-            result = generate_weekly_report_text(school_keyword=school_keyword, week_number=week_num)
-            if isinstance(result, list):
-                return result
-            else:
-                return str(result)
+        # 让大模型生成代码
+        code = generate_code_with_llm(user_input)
+        print(f"生成的代码：\n{code}")
         
-        round_nums = extract_round_numbers(user_input)
-        if round_nums is not None:
-            result = generate_weekly_report_text(school_keyword=school_keyword, round_numbers=round_nums)
-            if isinstance(result, list):
-                return result
-            else:
-                return str(result)
-        
-        result = generate_weekly_report_text(school_keyword=school_keyword)
-        if isinstance(result, list):
-            return result
+        # 提取代码块
+        code_match = re.search(r'```python\n(.*?)```', code, re.DOTALL)
+        if code_match:
+            code = code_match.group(1).strip()
         else:
-            return str(result)
+            code = code.strip()
+        
+        print("--- 执行代码 ---")
+        result = safe_execute(code)
+        print(f"执行结果：{result}")
+        return result
     
-    print("--- 正在请求大模型生成代码 ---")
-    code = generate_code_with_llm(user_input)
-    print(f"模型返回：\n{code}")
-    
-    code_match = re.search(r'```python\n(.*?)```', code, re.DOTALL)
-    if code_match:
-        code = code_match.group(1).strip()
-    else:
-        code = code.strip()
-    
-    print(f"--- 提取到的代码 ---\n{code}")
-    print("--- 正在执行代码 ---")
-    
-    result = safe_execute(code)
-    print(f"执行结果：{result}")
-    return result
+    # 其他指令
+    return "抱歉，我暂时无法处理这个请求。"
 
+
+# ============================================================
+# 3. 测试入口
+# ============================================================
 
 if __name__ == "__main__":
     test_inputs = [
-        "生成战报",
         "生成二工大战报",
         "生成二工大第一周战报",
+        "生成战报",
         "生成第2周战报",
-        "生成第1、2轮战报",
+        "生成第3、4轮战报",
     ]
     
     for inp in test_inputs:
