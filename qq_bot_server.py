@@ -14,7 +14,7 @@ from agent import run_agent
 # ========== 配置 ==========
 HOST = "0.0.0.0"
 PORT = 8765
-BOT_QQ = 1257934564  # 你的机器人 QQ 号
+BOT_QQ = 1257934564
 
 print(f"🤖 QQ Bot WebSocket 服务启动中...", flush=True)
 print(f"📡 监听地址：ws://{HOST}:{PORT}", flush=True)
@@ -64,13 +64,10 @@ def try_parse_list(content):
 
 # ========== 生成动态提醒文本 ==========
 def generate_at_text(user_input: str) -> str:
-    """根据用户输入生成动态提醒文本"""
     if "战报" in user_input:
-        # 提取周数
         week_match = re.search(r'第(\d+)周', user_input)
         if week_match:
             return f" 您要的第{week_match.group(1)}周战报已生成，请查看下方聊天记录 👇"
-        # 提取轮数
         round_match = re.search(r'第([\d、,，\-到]+)轮', user_input)
         if round_match:
             return f" 您要的第{round_match.group(1)}轮战报已生成，请查看下方聊天记录 👇"
@@ -85,14 +82,14 @@ async def handle_message(message_data: dict):
     group_id = message_data.get("group_id")
 
     if message_type != "group":
-        return None, None, None, None
+        return None, None, None, None, ""
 
     if not is_at_bot(message_data):
-        return None, None, None, None
+        return None, None, None, None, ""
 
     user_input = extract_text_without_at(message_data)
     if not user_input:
-        return "请告诉我你的需求，比如：给我10个随机数 或 生成战报", message_type, group_id, user_id
+        return "请告诉我你的需求，比如：给我10个随机数 或 生成战报", message_type, group_id, user_id, user_input
 
     print(f"📩 收到群消息：{user_input}", flush=True)
 
@@ -122,6 +119,7 @@ async def websocket_handler(websocket):
             if data.get("post_type") == "meta_event":
                 continue
 
+            # 接收5个返回值
             reply_content, msg_type, group_id, user_id, user_input = await handle_message(data)
             if reply_content is None:
                 continue
@@ -134,7 +132,7 @@ async def websocket_handler(websocket):
                 messages_to_send = [str(reply_content)]
 
             if msg_type == "group" and group_id:
-                # 1. 生成动态 @ 提醒
+                # 1. 发送 @ 提醒
                 at_text = generate_at_text(user_input)
                 at_segments = [
                     {"type": "at", "data": {"qq": user_id}},
@@ -150,7 +148,7 @@ async def websocket_handler(websocket):
                 await websocket.send(json.dumps(at_reply))
                 await asyncio.sleep(0.5)
 
-                # 2. 构建合并转发节点
+                # 2. 发送合并转发
                 forward_nodes = []
                 for msg in messages_to_send:
                     node = {
