@@ -5,12 +5,13 @@ import sys
 import os
 import ast
 import re
+from typing import List
 
 # 添加当前目录到 Python 路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from agent import run_agent, get_user_school
-from match_report import generate_weekly_report, SCHOOL_ALIAS
+from match_report import generate_weekly_report, SCHOOL_ALIAS, get_display_name
 
 # ========== 配置 ==========
 HOST = "0.0.0.0"
@@ -256,7 +257,9 @@ async def handle_message(message_data: dict, websocket):
             
             if bound_school is not None:
                 # ===== 有绑定学校 → 使用绑定学校查询 =====
-                print(f"🔗 使用绑定学校：{bound_school}（用户 {user_id}）", flush=True)
+                # 获取显示名称用于日志
+                display_name = get_display_name(bound_school)
+                print(f"🔗 使用绑定学校：{display_name}（用户 {user_id}）", flush=True)
                 
                 try:
                     reports = generate_weekly_report(school_keyword=bound_school)
