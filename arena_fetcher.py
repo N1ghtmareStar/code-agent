@@ -165,7 +165,7 @@ def parse_rounds_and_scores(data: dict, track_id: str, rank_bonus: Dict[int, int
                         "score": score,
                         "rank": rank,
                         "single_score": single_score,
-                        "round": round_num  # 🔥 添加轮次信息
+                        "round": round_num
                     })
     
     return round_data
@@ -205,21 +205,28 @@ def calculate_team_scores(round_data: Dict[int, Dict[str, dict]]) -> Dict[str, d
 
 
 # ============================================================
-# 主函数
+# 主函数（优化版：只请求一次数据）
 # ============================================================
 
 def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
+    """
+    获取战报数据
+    优化：只请求一次数据，同时计算累计值和当前轮次值
+    """
     print("📊 开始从 Arena 获取数据...")
     if round_filter:
         print(f"📌 过滤轮次: 第 {', '.join(map(str, round_filter))} 轮")
     
+    # 获取从第1轮到当前轮次的所有数据（一次性请求）
     all_rounds = list(range(1, max(round_filter) + 1)) if round_filter else None
     
     east_data, south_data, participants = fetch_contest_data()
     
+    # 一次性解析所有轮次
     east_rounds = parse_rounds_and_scores(east_data, EAST_TRACK_ID, EAST_RANK_BONUS, all_rounds)
     south_rounds = parse_rounds_and_scores(south_data, SOUTH_TRACK_ID, SOUTH_RANK_BONUS, all_rounds)
     
+    # 计算累计值（包含所有轮次）
     east_scores = calculate_team_scores(east_rounds)
     south_scores = calculate_team_scores(south_rounds)
     
