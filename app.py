@@ -4,11 +4,12 @@ import os
 import requests
 import re
 import asyncio
+import ssl
 from datetime import datetime
 from typing import Optional, Dict, Any
 
-# 使用 httpx 替代 aiohttp
-import httpx
+import aiohttp
+import websockets
 
 from agent import run_agent
 from match_report import generate_weekly_report
@@ -170,14 +171,18 @@ def send_forward(group_id: int, user_id: int, messages: list):
 
 
 # ============================================================
-# QQ 机器人（使用 httpx，不使用 aiohttp）
+# QQ 官方 API WebSocket 客户端
 # ============================================================
 class QQBot:
     def __init__(self, app_id: str, secret: str, account: str):
         self.app_id = app_id
         self.secret = secret
         self.account = account
+        self.ws = None
+        self.session = None
         self._running = False
+        self._heartbeat_interval = 30
+        self._seq = 0
         self._handlers = []
 
     def on_message(self, handler):
@@ -190,11 +195,157 @@ class QQBot:
             return
         
         self._running = True
-        print("🚀 QQ 机器人启动（使用 httpx）")
+        self.session = aiohttp.ClientSession()
+        
+        try:
+            gateway_url = await self._get_gateway()
+        except Exception as e:
+            print(f"❌ 获取网关失败: {e}")
+            return
+        
+        while self._running:
+            try:
+                await self._connect_and_listen(gateway_url)
+            except websockets.exceptions.ConnectionClosed as e:
+                print(f"⚠️ 连接关闭: {e}")
+            except Exception as e:
+                print(f"❌ 连接错误: {e}")
+            
+            if self._running:
+                print("🔄 5秒后重连...")
+                await asyncio.sleep(5)
+
+    async def _get_gateway(self) -> str:
+        url = "https://api.sgroup.qq.com/gateway"
+        headers = {"Authorization": f"Bot {self.app_id}.{self.secret}"}
+        
+        async with self.session.get(url, headers=headers) as resp:
+            if resp.status != 200:
+                raise Exception(f"获取网关失败: {resp.status}")
+            data = await resp.json()
+            print("✅ 获取网关成功")
+            return data.get("url", "")
+
+    async def _connect_and_listen(self, gateway_url: str):
+        print("🔄 正在连接 WebSocket...")
+        
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        
+        async with websockets.connect(
+            gateway_url,
+            ssl=ssl_context,
+            ping_interval=20,
+            ping_timeout=10,
+            max_size=2**23
+        ) as ws:
+            self.ws = ws
+            print("✅ WebSocket 已连接")
+            
+            await self._send_identify()
+            
+            async for message in ws:
+                await self._handle_message(message)
+
+    async def _send_identify(self):
+        identify_payload = {
+            "op": 2,
+            "d": {
+                "token": f"Bot {self.app_id}.{self.secret}",
+                "intents": 1 << 9,
+                "shard": [0, 1],
+                "properties": {
+                    "os": "Linux",
+                    "browser": "LangBot",
+                    "device": "LangBot"
+                }
+            }
+        }
+        await self.ws.send(json.dumps(identify_payload))
+        print("✅ 已发送认证信息")
+
+    async def _handle_message(self, raw_message: str):
+        try:
+            payload = json.loads(raw_message)
+            op = payload.get("op")
+            
+            if op == 0:
+                await self._handle_event(payload.get("d", {}))
+            elif op == 10:
+                self._heartbeat_interval = payload["d"]["heartbeat_interval"] / 1000
+                asyncio.create_task(self._heartbeat_loop())
+            elif op == 11:
+                pass
+        except json.JSONDecodeError:
+            print(f"❌ 无效 JSON: {raw_message[:100]}")
+
+    async def _handle_event(self, event: Dict[str, Any]):
+        event_type = event.get("type")
+        if event_type in ["GROUP_AT_MESSAGE_CREATE", "GROUP_MESSAGE_CREATE"]:
+            await self._handle_group_message(event)
+
+    async def _handle_group_message(self, event: Dict[str, Any]):
+        message = ""
+        for msg in event.get("message", []):
+            if msg.get("type") == "text":
+                message += msg.get("data", {}).get("text", "")
+        
+        at_bot = False
+        for msg in event.get("message", []):
+            if msg.get("type") == "at" and str(msg.get("data", {}).get("qq")) == self.account:
+                at_bot = True
+                break
+        
+        if not at_bot:
+            return
+        
+        group_id = event.get("group_id")
+        user_id = event.get("author", {}).get("id")
+        
+        print(f"📩 收到群消息: {message}")
+        
+        for handler in self._handlers:
+            try:
+                result = handler(message, group_id, user_id)
+                if result:
+                    await self.send_group_message(group_id, result)
+                    break
+            except Exception as e:
+                print(f"❌ 消息处理器错误: {e}")
+
+    async def send_group_message(self, group_id: str, content: str):
+        url = f"https://api.sgroup.qq.com/v2/groups/{group_id}/messages"
+        headers = {
+            "Authorization": f"Bot {self.app_id}.{self.secret}",
+            "Content-Type": "application/json"
+        }
+        data = {"content": content}
+        
+        try:
+            async with self.session.post(url, headers=headers, json=data) as resp:
+                if resp.status == 200:
+                    print(f"✅ 消息已发送: {content[:30]}...")
+                else:
+                    text = await resp.text()
+                    print(f"❌ 发送消息失败: {resp.status} {text[:100]}")
+        except Exception as e:
+            print(f"❌ 发送消息异常: {e}")
+
+    async def _heartbeat_loop(self):
+        while self._running and self.ws:
+            try:
+                await asyncio.sleep(self._heartbeat_interval)
+                await self.ws.send(json.dumps({"op": 1, "d": self._seq}))
+            except Exception:
+                break
 
     async def stop(self):
         self._running = False
-        print("🛑 QQ 机器人已停止")
+        if self.ws:
+            await self.ws.close()
+        if self.session:
+            await self.session.close()
 
 
 # QQ 机器人实例
