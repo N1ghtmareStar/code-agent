@@ -303,7 +303,7 @@ def generate_weekly_report(
 
     # ===== 消息2：东风赛道（累计分 + 本周新增） =====
     east_total = east.get('total_score', 0.0)
-    msg2 = f"""🀀 东风赛道：{east_total:.1f} 分（{east_round_total:+.1f} 分）
+    msg2 = f"""🀀 东风赛道：{east_total:.1f} 分（{east_round_total:+.1f} ）
 •  顺位：1位{east.get('rank_1', 0)}次 / 2位{east.get('rank_2', 0)}次 / 3位{east.get('rank_3', 0)}次 / 4位{east.get('rank_4', 0)}次
 
 ─────────────────────────────
@@ -312,7 +312,7 @@ def generate_weekly_report(
 
     # ===== 消息3：半庄赛道（累计分 + 本周新增） =====
     south_total = south.get('total_score', 0.0)
-    msg3 = f"""🀁 半庄赛道：{south_total:.1f} 分（{south_round_total:+.1f} 分）
+    msg3 = f"""🀁 半庄赛道：{south_total:.1f} 分（{south_round_total:+.1f} ）
 •  顺位：1位{south.get('rank_1', 0)}次 / 2位{south.get('rank_2', 0)}次 / 3位{south.get('rank_3', 0)}次 / 4位{south.get('rank_4', 0)}次
 
 ─────────────────────────────
