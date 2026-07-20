@@ -1,8 +1,9 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Query
 import json
 import os
 import requests
 from agent import run_agent
+from match_report import generate_weekly_report
 
 app = FastAPI()
 
@@ -18,6 +19,55 @@ async def index():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# ===== 战报 API =====
+@app.get("/api/match-report/generate")
+async def generate_report(
+    school: str = Query(..., description="学校名称或别名，如：第二工业、北大"),
+    week: int = Query(None, description="周数（1-8）"),
+    rounds: str = Query(None, description="轮次，逗号分隔，如：1,2,3,4")
+):
+    """生成第五届联合杯战报"""
+    try:
+        round_numbers = None
+        if rounds:
+            round_numbers = [int(r.strip()) for r in rounds.split(",") if r.strip()]
+        reports = generate_weekly_report(
+            school_keyword=school,
+            week_number=week,
+            round_numbers=round_numbers
+        )
+        return {
+            "status": "success",
+            "data": {
+                "messages": reports,
+                "full_text": "\n\n".join(reports)
+            }
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+
+@app.get("/api/match-report/schools")
+async def search_schools(keyword: str = Query(..., description="学校关键词")):
+    """搜索学校（自动补全）"""
+    from match_report import SCHOOL_ALIAS
+    results = []
+    for alias, full_name in SCHOOL_ALIAS.items():
+        if keyword.lower() in alias.lower() or keyword.lower() in full_name.lower():
+            results.append({"alias": alias, "full_name": full_name})
+    # 去重
+    seen = set()
+    unique = []
+    for r in results:
+        if r["full_name"] not in seen:
+            seen.add(r["full_name"])
+            unique.append(r)
+    return {"status": "success", "data": unique[:10]}
 
 
 @app.post("/webhook")
