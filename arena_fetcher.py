@@ -1,5 +1,6 @@
 import requests
 import json
+import time
 from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
 
@@ -12,6 +13,9 @@ SOUTH_SCORE_VIEW_ID = "6a527ee23b56c4a692c6b0c6"
 CONTEST_ID = "6a5265acf78ec7d0138baa2d"
 EAST_TRACK_ID = "6a5265acf78ec7d0138baa2e"
 SOUTH_TRACK_ID = "6a526941f78ec7d0138baa33"
+
+REQUEST_TIMEOUT = 60  # 超时时间改为60秒
+MAX_RETRIES = 3       # 最大重试次数
 
 # ============================================================
 # 顺位点（规则书第3.1、3.2节）
@@ -42,22 +46,45 @@ WEEK_ROUNDS = {
 
 
 # ============================================================
+# 带重试的请求函数
+# ============================================================
+
+def fetch_with_retry(url: str, max_retries: int = MAX_RETRIES, timeout: int = REQUEST_TIMEOUT) -> requests.Response:
+    """带重试机制的请求函数"""
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(url, timeout=timeout)
+            resp.raise_for_status()
+            return resp
+        except requests.exceptions.Timeout:
+            print(f"⏱️ 请求超时 ({timeout}s)，第 {attempt + 1}/{max_retries} 次重试...")
+            if attempt < max_retries - 1:
+                time.sleep(2)
+            else:
+                raise Exception(f"请求 {url} 超时，已重试 {max_retries} 次")
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️ 请求失败: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2)
+            else:
+                raise
+
+
+# ============================================================
 # 数据获取
 # ============================================================
 
 def fetch_score_view(score_view_id: str) -> dict:
     url = f"{ARENA_BASE}/api/score-views/{score_view_id}/input"
     print(f"📡 正在请求: {url}")
-    resp = requests.get(url, timeout=30)
-    resp.raise_for_status()
+    resp = fetch_with_retry(url)
     return resp.json()
 
 
 def fetch_participants(contest_id: str) -> Dict[str, str]:
     url = f"{ARENA_BASE}/api/contests/{contest_id}/participants"
     print(f"📡 正在请求参赛方列表: {url}")
-    resp = requests.get(url, timeout=30)
-    resp.raise_for_status()
+    resp = fetch_with_retry(url)
     data = resp.json()
     
     name_map = {}
@@ -255,17 +282,6 @@ if __name__ == "__main__":
         data = fetch_weekly_report_data([1, 2, 3, 4])
         
         for pid, team in data['teams'].items():
-            if "第二工业" in team['name']:
-                print(f"✅ {team['name']}:")
-                print(f"   总累计: {team['total_score']:.1f}")
-                print(f"   东风累计: {team['east']['total_score']:.1f}")
-                print(f"   东风轮次明细: {team['east']['round_scores']}")
-                print(f"   半庄累计: {team['south']['total_score']:.1f}")
-                print(f"   半庄轮次明细: {team['south']['round_scores']}")
-        
-        print("\n=== 测试：第3-4轮（累计应该包含第1-4轮）===")
-        data2 = fetch_weekly_report_data([3, 4])
-        for pid, team in data2['teams'].items():
             if "第二工业" in team['name']:
                 print(f"✅ {team['name']}:")
                 print(f"   总累计: {team['total_score']:.1f}")
