@@ -116,13 +116,21 @@ async def webhook(request: Request):
 
 
 # ===== 兼容 LangBot 的 Webhook 地址格式 =====
-@app.post("/bots/{bot_id}")
+# 使用 route 装饰器同时支持 GET 和 POST
+@app.route("/bots/{bot_id}", methods=["GET", "POST"])
 async def bot_webhook(bot_id: str, request: Request):
     """
     兼容 LangBot 自动生成的 webhook 地址格式
-    LangBot 会发送消息到 /bots/{bot_id} 而不是 /webhook
+    LangBot 会发送消息到 /bots/{bot_id}
+    支持 GET（验证）和 POST（消息）两种方法
     """
-    print(f"📩 通过 /bots/{bot_id} 收到消息")
+    print(f"📩 通过 /bots/{bot_id} 收到 {request.method} 请求")
+    
+    if request.method == "GET":
+        # GET 请求：返回确认信息，用于 webhook 验证
+        return {"status": "ok", "message": "Webhook endpoint is ready", "bot_id": bot_id}
+    
+    # POST 请求：调用 webhook 处理
     return await webhook(request)
 
 
