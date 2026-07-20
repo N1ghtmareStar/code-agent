@@ -213,14 +213,20 @@ def generate_weekly_report(
     if not school_data:
         return [f"❌ 未找到学校：'{original_keyword}' 未参加第五届联合杯，或学校名称不匹配。"]
     
-    # ---- 判断是单轮还是多轮 ----
+    # ---- 判断模式 ----
     is_single_round = len(target_rounds) == 1
-    round_label = "本轮" if is_single_round else "本周"
-    prev_label = "上轮" if is_single_round else "上周"
+    is_cumulative = len(target_rounds) > 2  # 多轮累计模式（如1-4轮）
+    
+    if is_cumulative:
+        round_label = "累计"
+        prev_label = ""
+    else:
+        round_label = "本轮" if is_single_round else "本周"
+        prev_label = "上轮" if is_single_round else "上周"
     
     # ---- 获取上一轮/周数据（用于排名变化） ----
     last_final_rank = 0
-    if last_week_data is None:
+    if last_week_data is None and not is_cumulative:
         if is_single_round:
             prev_round = target_rounds[0] - 1
             if prev_round >= 1:
@@ -280,19 +286,23 @@ def generate_weekly_report(
     else:
         promotion_text = "•  晋级线：暂无数据"
     
-    # 生成标题
+    # ===== 生成标题 =====
     if title:
         week_title = title
-    else:
-        if is_single_round:
+    elif round_numbers is not None:
+        if len(target_rounds) == 1:
             week_title = f"第{target_rounds[0]}轮战报"
         else:
-            detected_week = get_week_from_rounds(target_rounds)
-            if detected_week is not None:
-                week_title = f"第{detected_week}周战报"
-            else:
-                round_str = f"第{target_rounds[0]}-{target_rounds[-1]}轮" if len(target_rounds) > 1 else f"第{target_rounds[0]}轮"
-                week_title = f"{round_str}战报"
+            week_title = f"第{target_rounds[0]}-{target_rounds[-1]}轮战报"
+    elif week_number is not None:
+        week_title = f"第{week_number}周战报"
+    else:
+        detected_week = get_week_from_rounds(target_rounds)
+        if detected_week is not None and len(target_rounds) == 2:
+            week_title = f"第{detected_week}周战报"
+        else:
+            round_str = f"第{target_rounds[0]}-{target_rounds[-1]}轮" if len(target_rounds) > 1 else f"第{target_rounds[0]}轮"
+            week_title = f"{round_str}战报"
     
     # 过滤明细，只保留当前轮次
     east_details = [d for d in east.get("details", []) if d.get("round") in target_rounds]
@@ -301,7 +311,7 @@ def generate_weekly_report(
     east_detail = format_details_from_arena(east_details, EAST_RANK_BONUS)
     south_detail = format_details_from_arena(south_details, SOUTH_RANK_BONUS)
     
-    # 🔥 从当前轮次明细中统计顺位（而不是用累计值）
+    # 从当前轮次明细中统计顺位
     east_rank_1 = sum(1 for d in east_details if d.get("rank") == 1)
     east_rank_2 = sum(1 for d in east_details if d.get("rank") == 2)
     east_rank_3 = sum(1 for d in east_details if d.get("rank") == 3)
@@ -313,7 +323,21 @@ def generate_weekly_report(
     south_rank_4 = sum(1 for d in south_details if d.get("rank") == 4)
     
     # ===== 消息1：总览 =====
-    msg1 = f"""📊 第五届联合杯 · {week_title}
+    if is_cumulative:
+        # 累计模式：直接显示总累计
+        msg1 = f"""📊 第五届联合杯 · {week_title}
+
+🏫 参赛学校：{school_name}
+📅 报告生成：{datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+─────────────────────────────
+📈 累计战况：
+•  累计总分数：{total_score:.1f} 分
+•  当前排名：第 {final_rank} 名（{rank_desc}）
+{promotion_text}"""
+    else:
+        # 普通模式：显示上周/本周
+        msg1 = f"""📊 第五届联合杯 · {week_title}
 
 🏫 参赛学校：{school_name}
 📅 报告生成：{datetime.now().strftime('%Y-%m-%d %H:%M')}
@@ -325,7 +349,7 @@ def generate_weekly_report(
 •  当前累计分数：{total_score:.1f} 分
 •  当前排名：第 {final_rank} 名（{rank_desc}）
 {promotion_text}"""
-
+    
     # ===== 消息2：东风赛道 =====
     east_total = east.get('total_score', 0.0)
     msg2 = f"""🀀 东风赛道：{east_total:.1f} 分（{east_round_total:+.1f}）
@@ -361,6 +385,11 @@ if __name__ == "__main__":
         print("\n=== 测试：第4轮（单轮）===")
         reports_round4 = generate_weekly_report(school_keyword="第二工业", round_numbers=[4])
         for i, msg in enumerate(reports_round4, 1):
+            print(f"消息{i}:\n{msg}\n")
+        
+        print("\n=== 测试：第1-4轮（累计模式）===")
+        reports_1_4 = generate_weekly_report(school_keyword="第二工业", round_numbers=[1, 2, 3, 4])
+        for i, msg in enumerate(reports_1_4, 1):
             print(f"消息{i}:\n{msg}\n")
         
     except Exception as e:
