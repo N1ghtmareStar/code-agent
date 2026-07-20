@@ -22,7 +22,6 @@ def get_week_from_rounds(rounds: List[int]) -> Optional[int]:
     if not rounds:
         return None
     min_round = min(rounds)
-    # 第1-2轮 -> 第1周，第3-4轮 -> 第2周，依此类推
     week = (min_round - 1) // 2 + 1
     return week
 
@@ -221,28 +220,36 @@ def generate_weekly_report(
     if not school_data:
         return [f"❌ 未找到学校：'{original_keyword}' 未参加第五届联合杯，或学校名称不匹配。"]
     
-    # ---- 获取上周数据 ----
-    if last_week_data is None:
-        prev_rounds = get_prev_rounds(target_rounds)
-        if prev_rounds:
-            try:
-                prev_data = fetch_weekly_report_data(prev_rounds)
-                last_week_data = prev_data
-            except:
-                last_week_data = None
+    # ---- 判断是单轮还是多轮 ----
+    is_single_round = len(target_rounds) == 1
+    round_label = "本轮" if is_single_round else "本周"
+    prev_label = "上轮" if is_single_round else "上周"
     
-    last_total = 0.0
+    # ---- 获取上一轮/周数据（用于排名变化） ----
     last_final_rank = 0
-    last_east_score = 0.0
-    last_south_score = 0.0
+    if last_week_data is None:
+        if is_single_round:
+            # 单轮：获取前一轮的数据
+            prev_round = target_rounds[0] - 1
+            if prev_round >= 1:
+                try:
+                    prev_data = fetch_weekly_report_data([prev_round])
+                    last_week_data = prev_data
+                except:
+                    last_week_data = None
+        else:
+            prev_rounds = get_prev_rounds(target_rounds)
+            if prev_rounds:
+                try:
+                    prev_data = fetch_weekly_report_data(prev_rounds)
+                    last_week_data = prev_data
+                except:
+                    last_week_data = None
     
     if last_week_data:
         last_team = find_school_in_arena(last_week_data, school_keyword)
         if last_team and last_team[1]:
-            last_total = last_team[1].get("total_score", 0.0)
             last_final_rank = last_team[1].get("final_rank", 0)
-            last_east_score = last_team[1].get("east", {}).get("total_score", 0.0)
-            last_south_score = last_team[1].get("south", {}).get("total_score", 0.0)
     
     # ---- 当前数据 ----
     east = school_data.get("east", {})
@@ -250,43 +257,44 @@ def generate_weekly_report(
     total_score = school_data.get("total_score", 0.0)
     final_rank = school_data.get("final_rank", 0)
     
-    # 计算增量（本周新增 = 当前累计 - 上周累计）
-    delta_total = total_score - last_total
-    delta_east = east.get("total_score", 0.0) - last_east_score
-    delta_south = south.get("total_score", 0.0) - last_south_score
+    # 计算本轮/周轮次总分（从 round_scores 中累加当前轮次）
+    east_round_total = sum(score for round_num, score in east.get("round_scores", {}).items() if round_num in target_rounds)
+    south_round_total = sum(score for round_num, score in south.get("round_scores", {}).items() if round_num in target_rounds)
+    delta_total = east_round_total + south_round_total
+    
+    # 上轮/上周累计分数
+    last_total = total_score - delta_total
     
     # 排名变化
     if last_final_rank == 0:
         rank_desc = "持平"
     elif final_rank < last_final_rank:
-        rank_desc = f"↑ {last_final_rank - final_rank} "
+        rank_desc = f"↑ {last_final_rank - final_rank}"
     elif final_rank > last_final_rank:
-        rank_desc = f"↓ {final_rank - last_final_rank} "
+        rank_desc = f"↓ {final_rank - last_final_rank}"
     else:
         rank_desc = "持平"
     
-    # 生成标题：优先使用传入的 title，否则根据轮次判断周数
+    # 生成标题
     if title:
         week_title = title
     else:
-        # 根据轮次判断周数
-        detected_week = get_week_from_rounds(target_rounds)
-        if detected_week is not None:
-            week_title = f"第{detected_week}周战报"
+        if is_single_round:
+            week_title = f"第{target_rounds[0]}轮战报"
         else:
-            round_str = f"第{target_rounds[0]}-{target_rounds[-1]}轮" if len(target_rounds) > 1 else f"第{target_rounds[0]}轮"
-            week_title = f"{round_str}战报"
+            detected_week = get_week_from_rounds(target_rounds)
+            if detected_week is not None:
+                week_title = f"第{detected_week}周战报"
+            else:
+                round_str = f"第{target_rounds[0]}-{target_rounds[-1]}轮" if len(target_rounds) > 1 else f"第{target_rounds[0]}轮"
+                week_title = f"{round_str}战报"
     
-    # 🔥 过滤明细，只保留当前轮次
+    # 过滤明细，只保留当前轮次
     east_details = [d for d in east.get("details", []) if d.get("round") in target_rounds]
     south_details = [d for d in south.get("details", []) if d.get("round") in target_rounds]
     
     east_detail = format_details_from_arena(east_details, EAST_RANK_BONUS)
     south_detail = format_details_from_arena(south_details, SOUTH_RANK_BONUS)
-    
-    # 计算本周轮次总分（从 round_scores 中累加当前轮次）
-    east_round_total = sum(score for round_num, score in east.get("round_scores", {}).items() if round_num in target_rounds)
-    south_round_total = sum(score for round_num, score in south.get("round_scores", {}).items() if round_num in target_rounds)
     
     # ===== 消息1：总览 =====
     msg1 = f"""📊 第五届联合杯 · {week_title}
@@ -295,28 +303,28 @@ def generate_weekly_report(
 📅 报告生成：{datetime.now().strftime('%Y-%m-%d %H:%M')}
 
 ─────────────────────────────
-📈 本周战况：
-•  上周累计分数：{last_total:.1f} 分
-•  本周新增分数：{delta_total:+.1f} 分
+📈 {round_label}战况：
+•  {prev_label}累计分数：{last_total:.1f} 分
+•  {round_label}新增分数：{delta_total:+.1f} 分
 •  当前累计分数：{total_score:.1f} 分
 •  当前排名：第 {final_rank} 名（{rank_desc}）"""
 
-    # ===== 消息2：东风赛道（累计分 + 本周新增） =====
+    # ===== 消息2：东风赛道 =====
     east_total = east.get('total_score', 0.0)
     msg2 = f"""🀀 东风赛道：{east_total:.1f} 分（{east_round_total:+.1f}）
 •  顺位：1位{east.get('rank_1', 0)}次 / 2位{east.get('rank_2', 0)}次 / 3位{east.get('rank_3', 0)}次 / 4位{east.get('rank_4', 0)}次
 
 ─────────────────────────────
-📌 本周明细（东风）：
+📌 {round_label}明细（东风）：
 {east_detail}"""
 
-    # ===== 消息3：半庄赛道（累计分 + 本周新增） =====
+    # ===== 消息3：半庄赛道 =====
     south_total = south.get('total_score', 0.0)
     msg3 = f"""🀁 半庄赛道：{south_total:.1f} 分（{south_round_total:+.1f}）
 •  顺位：1位{south.get('rank_1', 0)}次 / 2位{south.get('rank_2', 0)}次 / 3位{south.get('rank_3', 0)}次 / 4位{south.get('rank_4', 0)}次
 
 ─────────────────────────────
-📌 本周明细（半庄）：
+📌 {round_label}明细（半庄）：
 {south_detail}"""
 
     return [msg1, msg2, msg3]
@@ -333,9 +341,9 @@ if __name__ == "__main__":
         for i, msg in enumerate(reports, 1):
             print(f"消息{i}:\n{msg}\n")
         
-        print("\n=== 测试：第2周（第3、4轮）===")
-        reports_week2 = generate_weekly_report(school_keyword="第二工业", week_number=2)
-        for i, msg in enumerate(reports_week2, 1):
+        print("\n=== 测试：第4轮（单轮）===")
+        reports_round4 = generate_weekly_report(school_keyword="第二工业", round_numbers=[4])
+        for i, msg in enumerate(reports_round4, 1):
             print(f"消息{i}:\n{msg}\n")
         
     except Exception as e:
