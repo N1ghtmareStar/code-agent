@@ -176,15 +176,6 @@ def extract_rounds_from_input(user_input: str) -> list:
     return None
 
 
-def is_local_report_command(user_input: str) -> bool:
-    """判断是否能本地处理（不调用大模型）"""
-    if not re.search(r'战报|生成战报', user_input):
-        return False
-    
-    school = extract_school_from_input(user_input)
-    return school is not None
-
-
 # ========== 处理单条消息 ==========
 async def handle_message(message_data: dict, websocket):
     message_type = message_data.get("message_type")
@@ -246,8 +237,11 @@ async def handle_message(message_data: dict, websocket):
                 # 调用 agent.py 处理（会调用大模型）
                 result = await asyncio.to_thread(run_agent, user_input, str(user_id))
                 
+                print(f"📤 qq_bot_server 收到结果类型：{type(result)}", flush=True)
+                
                 # 🔥 检查结果类型，支持合并转发
                 if isinstance(result, list):
+                    print(f"📤 发送合并转发，共 {len(result)} 条", flush=True)
                     await send_forward_message(websocket, group_id, user_id, user_input, result)
                 else:
                     await send_group_message(websocket, group_id, str(result))

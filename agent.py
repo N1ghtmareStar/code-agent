@@ -282,20 +282,26 @@ def safe_execute(code: str, globals_dict: dict = None):
     
     try:
         exec(code, safe_globals)
+        
+        # 🔥 关键：先获取 result 变量
+        result = safe_globals.get('result', None)
+        
+        # 如果有打印输出，也捕获
         output = sys.stdout.getvalue()
         
-        # 检查是否有输出
+        # 如果 result 是列表，直接返回
+        if isinstance(result, list):
+            return result
+        
+        # 如果 result 是字符串，返回字符串
+        if isinstance(result, str):
+            return result
+        
+        # 如果有打印输出，返回输出
         if output.strip():
-            # 尝试按空行分割，检测是否是战报
-            parts = re.split(r'\n{2,}', output.strip())
-            # 如果包含"参赛学校"和"东风赛道"，说明是战报
-            if len(parts) > 1 and '参赛学校' in output and '东风赛道' in output:
-                return parts
             return output.strip()
         
-        # 尝试获取 result 变量
-        result = safe_globals.get('result', None)
-        return result
+        return "执行完成（无输出）"
             
     except Exception as e:
         return f"❌ 代码执行出错：{str(e)}"
@@ -413,10 +419,16 @@ def run_agent(user_input: str, user_id: str = None):
         result = safe_execute(code)
         print(f"📤 执行结果类型：{type(result)}")
         
-        # 🔥 如果结果是列表，直接返回列表（用于合并转发）
         if isinstance(result, list):
+            print(f"📤 返回列表，长度：{len(result)}")
             return result
-        return str(result)
+        
+        if isinstance(result, str):
+            print(f"📤 返回字符串，长度：{len(result)}")
+            return result
+        
+        print(f"📤 返回其他类型：{result}")
+        return str(result) if result else "执行完成（无输出）"
     
     # ---- 3. 其他指令交给大模型 ----
     print("🤖 使用大模型处理通用指令")
