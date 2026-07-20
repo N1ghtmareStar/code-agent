@@ -17,6 +17,16 @@ def get_prev_rounds(current_rounds: List[int]) -> List[int]:
     return prev_rounds if prev_rounds else []
 
 
+def get_week_from_rounds(rounds: List[int]) -> Optional[int]:
+    """根据轮次判断是第几周"""
+    if not rounds:
+        return None
+    min_round = min(rounds)
+    # 第1-2轮 -> 第1周，第3-4轮 -> 第2周，依此类推
+    week = (min_round - 1) // 2 + 1
+    return week
+
+
 # ============================================================
 # 别名映射表
 # ============================================================
@@ -167,7 +177,7 @@ def format_details_from_arena(details: List[dict], rank_bonus: Dict[int, int]) -
         rank_point = rank_bonus.get(rank, 0)
         total_score = alap_score + rank_point
         
-        total_str = f"+{total_score:.2f}" if total_score >= 0 else f"{total_score:.2f}"
+        total_str = f"+{total_score:.1f}" if total_score >= 0 else f"{total_score:.1f}"
         result_lines.append(f"•  {player_name} | {rank}位 | {score}（{total_str}）")
     
     if not result_lines:
@@ -249,20 +259,23 @@ def generate_weekly_report(
     if last_final_rank == 0:
         rank_desc = "持平"
     elif final_rank < last_final_rank:
-        rank_desc = f"↑ {last_final_rank - final_rank}"
+        rank_desc = f"↑ {last_final_rank - final_rank} 名"
     elif final_rank > last_final_rank:
-        rank_desc = f"↓ {final_rank - last_final_rank}"
+        rank_desc = f"↓ {final_rank - last_final_rank} 名"
     else:
         rank_desc = "持平"
     
-    # 生成标题
+    # 生成标题：优先使用传入的 title，否则根据轮次判断周数
     if title:
         week_title = title
-    elif week_number is not None:
-        week_title = f"第{week_number}周战报"
     else:
-        round_str = f"第{target_rounds[0]}-{target_rounds[-1]}轮" if len(target_rounds) > 1 else f"第{target_rounds[0]}轮"
-        week_title = f"{round_str}战报"
+        # 根据轮次判断周数
+        detected_week = get_week_from_rounds(target_rounds)
+        if detected_week is not None:
+            week_title = f"第{detected_week}周战报"
+        else:
+            round_str = f"第{target_rounds[0]}-{target_rounds[-1]}轮" if len(target_rounds) > 1 else f"第{target_rounds[0]}轮"
+            week_title = f"{round_str}战报"
     
     # 🔥 过滤明细，只保留当前轮次
     east_details = [d for d in east.get("details", []) if d.get("round") in target_rounds]
