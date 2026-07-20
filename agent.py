@@ -7,15 +7,12 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 
-# ============================================================
-# 加载 .env 文件
-# ============================================================
 load_dotenv()
 
 from match_report import generate_weekly_report_text
 
 # ============================================================
-# 配置（从环境变量读取）
+# 配置
 # ============================================================
 VOLC_ACCESS_KEY = os.getenv("VOLC_ACCESS_KEY")
 VOLC_ENDPOINT_ID = os.getenv("VOLC_ENDPOINT_ID")
@@ -27,6 +24,53 @@ if not VOLC_ENDPOINT_ID:
 
 API_URL = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
 MODEL = VOLC_ENDPOINT_ID
+
+# ============================================================
+# 用户绑定管理
+# ============================================================
+
+BINDINGS_FILE = "user_bindings.json"
+
+
+def load_bindings() -> dict:
+    """加载用户绑定数据"""
+    if os.path.exists(BINDINGS_FILE):
+        try:
+            with open(BINDINGS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+
+def save_bindings(bindings: dict):
+    """保存用户绑定数据"""
+    with open(BINDINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(bindings, f, ensure_ascii=False, indent=2)
+
+
+def get_user_school(user_id: str, default: str = "第二工业") -> str:
+    """获取用户绑定的学校"""
+    bindings = load_bindings()
+    return bindings.get(str(user_id), default)
+
+
+def set_user_school(user_id: str, school: str) -> str:
+    """设置用户绑定的学校"""
+    bindings = load_bindings()
+    bindings[str(user_id)] = school
+    save_bindings(bindings)
+    return f"✅ 已绑定学校：{school}"
+
+
+def clear_user_school(user_id: str) -> str:
+    """清除用户绑定的学校"""
+    bindings = load_bindings()
+    if str(user_id) in bindings:
+        del bindings[str(user_id)]
+        save_bindings(bindings)
+        return "✅ 已解绑，恢复默认学校「第二工业」"
+    return "⚠️ 你尚未绑定任何学校"
 
 
 # ============================================================
@@ -120,10 +164,18 @@ def call_llm(prompt: str) -> str:
         return None
 
 
-def generate_code_with_llm(user_input: str) -> str:
-    school = extract_school_keyword(user_input, default="第二工业")
+def generate_code_with_llm(user_input: str, user_id: str = None) -> str:
+    school = extract_school_keyword(user_input)
     week = extract_week_number(user_input)
     rounds = extract_round_numbers(user_input)
+    
+    # 如果用户指定了学校，使用指定的
+    if school:
+        pass  # 使用提取到的学校
+    elif user_id:
+        school = get_user_school(user_id, default="第二工业")
+    else:
+        school = "第二工业"
     
     if week is not None:
         return f"""
@@ -142,7 +194,7 @@ print(generate_weekly_report_text(school_keyword="{school}", round_numbers={roun
 请生成Python代码调用 generate_weekly_report_text 函数。
 
 规则：
-1. school_keyword: 从输入中提取学校简称（如"二工大"→"二工大"），没有则用"第二工业"
+1. school_keyword: 从输入中提取学校简称（如"二工大"→"二工大"），没有则用"{school}"
 2. week_number: 如果提到"第X周"、"第一周"、"首周"，提取数字；否则为 None
 3. round_numbers: 如果提到"第X轮"或"第X、Y轮"，提取列表；否则为 None
 
@@ -166,7 +218,46 @@ print(generate_weekly_report_text(school_keyword="{school}"))
 
 
 # ============================================================
-# 3. 核心函数
+# 3. 帮助信息
+# ============================================================
+
+def get_help_text() -> str:
+    return """📖 **战报机器人使用帮助**
+
+**基本用法：**
+@机器人 生成战报
+
+**学校指定（临时）：**
+• 生成二工大战报
+• 生成北大战报
+• 生成上大战报
+
+**绑定学校（永久）：**
+• 绑定学校 二工大
+• 绑定学校 北大
+• 查看绑定
+• 解绑学校
+
+**周数/轮次指定：**
+• 生成第1周战报
+• 生成第2周战报
+• 生成第3、4轮战报
+• 生成第1-4轮战报
+
+**默认：**
+• 绑定后，直接「生成战报」即可查询绑定学校
+• 未绑定时，默认查询「上海第二工业大学」
+• 不指定时间时，默认查询最新已完成的两轮
+
+**示例：**
+@机器人 绑定学校 二工大
+@机器人 生成战报  ← 自动查询二工大
+@机器人 生成第2周战报
+@机器人 生成第3、4轮战报"""
+
+
+# ============================================================
+# 4. 核心函数
 # ============================================================
 
 def safe_execute(code: str, globals_dict: dict = None) -> str:
@@ -204,53 +295,36 @@ def safe_execute(code: str, globals_dict: dict = None) -> str:
         sys.stdout = old_stdout
 
 
-def get_help_text() -> str:
-    """返回使用帮助文本"""
-    return """📖 **战报机器人使用帮助**
-
-**基本用法：**
-@机器人 生成战报
-
-**学校指定：**
-• 生成二工大战报
-• 生成北大战报
-• 生成上大战报
-
-**周数指定：**
-• 生成第1周战报
-• 生成第2周战报
-• 生成第一周战报
-• 生成二工大第一周战报
-
-**轮次指定：**
-• 生成第3、4轮战报
-• 生成第1-2轮战报
-
-**默认：**
-• 不指定学校时，默认查询「上海第二工业大学」
-• 不指定时间时，默认查询最新已完成的两轮
-
-**示例：**
-@机器人 生成二工大第2周战报
-@机器人 生成北大战报
-@机器人 生成第3、4轮战报
-
-**其他功能：**
-• 发送「帮助」查看此说明
-• 发送「hello」获取随机问候"""
-
-
-def run_agent(user_input: str) -> str:
+def run_agent(user_input: str, user_id: str = None) -> str:
     print(f"用户输入：{user_input}")
+    print(f"用户ID：{user_id}")
     
-    # ===== 帮助指令 =====
+    # ===== 绑定学校 =====
+    if "绑定学校" in user_input:
+        match = re.search(r'绑定学校\s*([\u4e00-\u9fa5]{2,4}大?)', user_input)
+        if match:
+            school = match.group(1)
+            result = set_user_school(user_id, school)
+            return result
+        else:
+            return "⚠️ 请指定要绑定的学校，例如：绑定学校 二工大"
+    
+    # ===== 查看绑定 =====
+    if "查看绑定" in user_input:
+        school = get_user_school(user_id, default="第二工业")
+        return f"📌 你当前绑定的学校是：{school}"
+    
+    # ===== 解绑学校 =====
+    if "解绑学校" in user_input:
+        return clear_user_school(user_id)
+    
+    # ===== 帮助 =====
     help_keywords = ["帮助", "help", "怎么用", "使用方法", "指令", "功能"]
     user_lower = user_input.lower().strip()
-    
     if user_lower in ["帮助", "help"] or any(kw in user_lower for kw in ["怎么用", "使用方法", "指令", "功能"]):
         return get_help_text()
     
-    # ===== 简单问候 =====
+    # ===== 问候 =====
     if user_lower in ["你好", "hello", "hi", "hey"]:
         import random
         greetings = ["你好呀！😊", "嗨！有什么可以帮你的？", "hello！需要生成战报吗？", "我在呢！👋"]
@@ -259,7 +333,7 @@ def run_agent(user_input: str) -> str:
     # ===== 战报生成 =====
     if "生成" in user_input and "战报" in user_input:
         print("--- 正在生成战报 ---")
-        code = generate_code_with_llm(user_input)
+        code = generate_code_with_llm(user_input, user_id)
         print(f"生成的代码：\n{code}")
         
         code_match = re.search(r'```python\n(.*?)```', code, re.DOTALL)
@@ -273,23 +347,25 @@ def run_agent(user_input: str) -> str:
         print(f"执行结果：{result}")
         return result
     
-    # ===== 其他指令 =====
     return "抱歉，我暂时无法处理这个请求。\n\n发送「帮助」查看使用说明。"
 
 
 if __name__ == "__main__":
     test_inputs = [
         "帮助",
-        "生成二工大战报",
-        "生成二工大第一周战报",
+        "绑定学校 二工大",
+        "查看绑定",
         "生成战报",
-        "你好",
+        "生成第2周战报",
+        "解绑学校",
     ]
+    
+    test_user_id = "1761473633"
     
     for inp in test_inputs:
         print("\n" + "="*50)
         print(f"测试输入：{inp}")
-        result = run_agent(inp)
+        result = run_agent(inp, test_user_id)
         if isinstance(result, list):
             for i, msg in enumerate(result, 1):
                 print(f"消息{i}:\n{msg}\n")
