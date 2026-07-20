@@ -1,39 +1,93 @@
-from flask import Flask
-import threading
-import subprocess
+from fastapi import FastAPI, Request
+import json
 import os
+import requests
+from agent import run_agent
 
-app = Flask(__name__)
+app = FastAPI()
 
-@app.route('/')
-def hello():
-    return "QQ Bot Agent is running! (WebSocket service is active)"
+BOT_QQ = os.getenv("BOT_QQ", "1257934564")
+NAPCAT_API_URL = os.getenv("NAPCAT_API_URL", "http://localhost:3000")
 
-@app.route('/health')
-def health():
-    return "OK", 200
 
-@app.route('/test')
-def test():
-    key = os.getenv("VOLC_ACCESS_KEY")
-    if key:
-        return f"VOLC_ACCESS_KEY is set: {key[:10]}... (truncated)"
+@app.get("/")
+async def index():
+    return {"status": "ok", "message": "战报机器人运行中"}
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.post("/webhook")
+async def webhook(request: Request):
+    try:
+        data = await request.json()
+    except:
+        return {"status": "error", "message": "Invalid JSON"}
+
+    if data.get("post_type") != "message" or data.get("message_type") != "group":
+        return {"status": "ok"}
+
+    if not is_at_bot(data):
+        return {"status": "ok"}
+
+    user_input = extract_user_input(data)
+    if not user_input:
+        return {"status": "ok"}
+
+    user_id = data.get("user_id")
+    group_id = data.get("group_id")
+
+    print(f"📩 收到消息：{user_input}")
+
+    result = run_agent(user_input, str(user_id))
+    send_reply(group_id, user_id, result)
+
+    return {"status": "ok"}
+
+
+def is_at_bot(data: dict) -> bool:
+    for seg in data.get("message", []):
+        if seg.get("type") == "at" and str(seg.get("data", {}).get("qq")) == BOT_QQ:
+            return True
+    return False
+
+
+def extract_user_input(data: dict) -> str:
+    text = ""
+    for seg in data.get("message", []):
+        if seg.get("type") == "text":
+            text += seg.get("data", {}).get("text", "")
+    return text.strip()
+
+
+def send_reply(group_id: int, user_id: int, result):
+    if isinstance(result, list):
+        send_forward(group_id, user_id, result)
     else:
-        return "VOLC_ACCESS_KEY is NOT set"
+        send_message(group_id, f"@{user_id} {result}")
 
-# 注意：/webhook 路由已迁移到 a.py，这里不再重复定义
 
-def run_bot():
-    # 启动 QQ 机器人 WebSocket 服务
-    subprocess.run(["python", "qq_bot_server.py"])
+def send_message(group_id: int, content: str):
+    url = f"{NAPCAT_API_URL}/send_group_msg"
+    try:
+        requests.post(url, json={"group_id": group_id, "message": content}, timeout=5)
+    except Exception as e:
+        print(f"发送消息失败: {e}")
 
-if __name__ == '__main__':
-    # 在后台线程中运行机器人服务
-    bot_thread = threading.Thread(target=run_bot)
-    bot_thread.daemon = True
-    bot_thread.start()
-    # 启动 Flask 服务，监听 0.0.0.0 和 Wasmer 分配的端口
-    port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port)
-# 让 Wasmer 的 'a:app' 配置也能工作
-a = app
+
+def send_forward(group_id: int, user_id: int, messages: list):
+    send_message(group_id, f"@{user_id} 您要的战报已生成，请查看下方聊天记录 👇")
+    nodes = []
+    for msg in messages:
+        nodes.append({
+            "type": "node",
+            "data": {"name": "战报机器人", "uin": BOT_QQ, "content": msg}
+        })
+    url = f"{NAPCAT_API_URL}/send_group_forward_msg"
+    try:
+        requests.post(url, json={"group_id": group_id, "messages": nodes}, timeout=5)
+    except Exception as e:
+        print(f"发送合并转发失败: {e}")
