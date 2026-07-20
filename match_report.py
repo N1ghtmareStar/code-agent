@@ -184,7 +184,7 @@ def format_details_from_arena(details: List[dict], rank_bonus: Dict[int, int]) -
 
 
 # ============================================================
-# 消息截断（防止长战报被QQ吞掉）
+# 消息截断
 # ============================================================
 MAX_MSG_LENGTH = 1800
 
@@ -202,11 +202,6 @@ _report_cache = {}
 CACHE_TTL = 300  # 5分钟
 
 
-def get_report_cache_key(school: str, week: Optional[int], rounds: Optional[List[int]]) -> str:
-    rounds_str = ",".join(map(str, rounds)) if rounds else "auto"
-    return f"{school}_{week}_{rounds_str}"
-
-
 def generate_weekly_report(
     school_keyword: str = "第二工业",
     week_number: Optional[int] = None,
@@ -219,7 +214,7 @@ def generate_weekly_report(
     """
     original_keyword = school_keyword
     
-    # 确定轮次
+    # ===== 🔥 先确定实际轮次 =====
     if round_numbers is not None:
         target_rounds = round_numbers
     elif week_number is not None:
@@ -227,12 +222,12 @@ def generate_weekly_report(
     else:
         target_rounds = get_latest_completed_rounds(2)
     
-    # ===== 检查缓存 =====
-    cache_key = get_report_cache_key(school_keyword, week_number, round_numbers)
+    # ===== 🔥 用实际轮次生成缓存键 =====
+    cache_key = f"{school_keyword}_{week_number}_{','.join(map(str, target_rounds))}"
     if cache_key in _report_cache:
         cached_data, timestamp = _report_cache[cache_key]
         if time.time() - timestamp < CACHE_TTL:
-            print(f"📦 使用缓存的战报: {school_keyword}")
+            print(f"📦 使用缓存的战报: {school_keyword} (轮次: {target_rounds})")
             return cached_data
     
     # ===== 获取数据 =====
@@ -400,7 +395,7 @@ def generate_weekly_report(
     
     # ===== 存入缓存 =====
     _report_cache[cache_key] = (messages, time.time())
-    print(f"💾 已缓存战报: {school_keyword}")
+    print(f"💾 已缓存战报: {school_keyword} (轮次: {target_rounds})")
     
     return messages
 
