@@ -9,8 +9,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# 🔥 导入 resolve_school_alias
-from match_report import generate_weekly_report_text, SCHOOL_ALIAS, clear_cache, resolve_school_alias
+# 🔥 导入 resolve_school_alias 和 get_display_name
+from match_report import generate_weekly_report_text, SCHOOL_ALIAS, clear_cache, resolve_school_alias, get_display_name
 
 # ============================================================
 # 配置
@@ -54,14 +54,16 @@ def get_user_school(user_id: str, default: str = None) -> str:
 
 
 def set_user_school(user_id: str, school: str) -> str:
-    """🔥 绑定学校，返回学校全称"""
-    # 解析学校全称
-    full_school_name = resolve_school_alias(school)
+    """🔥 绑定学校，返回显示名称"""
+    # 解析学校用于匹配
+    match_name = resolve_school_alias(school)
+    # 获取显示名称
+    display_name = get_display_name(match_name)
     
     bindings = load_bindings()
-    bindings[str(user_id)] = full_school_name
+    bindings[str(user_id)] = match_name  # 存储匹配名称（用于查询）
     save_bindings(bindings)
-    return f"✅ 已绑定学校：{full_school_name}"
+    return f"✅ 已绑定学校：{display_name}"
 
 
 def clear_user_school(user_id: str) -> str:
@@ -487,14 +489,15 @@ def run_agent(user_input: str, user_id: str = None):
         match = re.search(r'绑定学校\s*([\u4e00-\u9fa5]{2,}?)', user_input_clean)
         if match:
             school = match.group(1).strip()
-            # 🔥 使用 set_user_school（已内置别名解析）
+            # 🔥 使用 set_user_school（已内置别名解析和显示名称）
             return set_user_school(user_id, school)
         return "⚠️ 请指定要绑定的学校，例如：绑定学校 二工大"
     
     # 查看绑定
     if "查看绑定" in user_input_clean:
         school = get_user_school(user_id, default="第二工业")
-        return f"📌 你当前绑定的学校是：{school}"
+        display_name = get_display_name(school)
+        return f"📌 你当前绑定的学校是：{display_name}"
     
     # 解绑学校
     if "解绑学校" in user_input_clean:
