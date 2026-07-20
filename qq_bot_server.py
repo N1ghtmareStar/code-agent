@@ -49,22 +49,9 @@ def extract_text_without_at(message_data: dict) -> str:
     return "".join(text_parts).strip()
 
 
-# ========== 尝试将字符串解析为列表 ==========
-def try_parse_list(content):
-    if isinstance(content, str):
-        stripped = content.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            try:
-                parsed = ast.literal_eval(stripped)
-                if isinstance(parsed, list):
-                    return parsed
-            except (SyntaxError, ValueError):
-                pass
-    return content
-
-
 # ========== 生成动态提醒文本 ==========
-def generate_at_text(user_input: str) -> str:
+def generate_at_text(user_input: str, result_type: str = "结果") -> str:
+    """生成 @ 用户的提示文本"""
     if "战报" in user_input:
         week_match = re.search(r'第(\d+)周', user_input)
         if week_match:
@@ -73,12 +60,20 @@ def generate_at_text(user_input: str) -> str:
         if round_match:
             return f" 您要的第{round_match.group(1)}轮战报已生成，请查看下方聊天记录 👇"
         return " 您要的战报已生成，请查看下方聊天记录 👇"
-    return " 您要的结果已生成，请查看下方聊天记录 👇"
+    elif "帮助" in user_input or "help" in user_input.lower():
+        return " 您要的帮助信息已生成，请查看下方聊天记录 👇"
+    elif "学校列表" in user_input:
+        return " 您要的学校列表已生成，请查看下方聊天记录 👇"
+    elif "绑定" in user_input:
+        return " 绑定操作已完成，请查看下方聊天记录 👇"
+    elif "缓存" in user_input:
+        return " 缓存操作已完成，请查看下方聊天记录 👇"
+    return f" 您要的{result_type}已生成，请查看下方聊天记录 👇"
 
 
-# ========== 发送消息的辅助函数 ==========
+# ========== 🔥 统一发送消息（全部走合并转发） ==========
 async def send_group_message(websocket, group_id: int, content):
-    """发送群消息"""
+    """发送群消息（单条）"""
     payload = {
         "action": "send_group_msg",
         "params": {
@@ -89,18 +84,40 @@ async def send_group_message(websocket, group_id: int, content):
     await websocket.send(json.dumps(payload))
 
 
-async def send_forward_message(websocket, group_id: int, user_id: int, user_input: str, messages: list):
-    """发送合并转发消息"""
-    at_text = generate_at_text(user_input)
+async def send_forward_message(websocket, group_id: int, user_id: int, user_input: str, messages, result_type: str = "结果"):
+    """
+    🔥 统一发送消息，自动判断类型并走合并转发
+    
+    Args:
+        messages: 可以是 str 或 list
+        result_type: 结果类型描述
+    """
+    # 统一转为列表
+    if isinstance(messages, str):
+        messages_list = [messages]
+    elif isinstance(messages, list):
+        messages_list = messages
+    else:
+        messages_list = [str(messages)]
+    
+    # 过滤空消息
+    messages_list = [msg for msg in messages_list if msg and msg.strip()]
+    
+    if not messages_list:
+        messages_list = ["⚠️ 结果为空，请稍后重试"]
+    
+    # 生成 @ 提示
+    at_text = generate_at_text(user_input, result_type)
     at_segments = [
         {"type": "at", "data": {"qq": user_id}},
         {"type": "text", "data": {"text": at_text}}
     ]
     await send_group_message(websocket, group_id, at_segments)
-    await asyncio.sleep(0.5)
-
+    await asyncio.sleep(0.3)
+    
+    # 构建合并转发节点
     forward_nodes = []
-    for msg in messages:
+    for msg in messages_list:
         node = {
             "type": "node",
             "data": {
@@ -110,7 +127,8 @@ async def send_forward_message(websocket, group_id: int, user_id: int, user_inpu
             }
         }
         forward_nodes.append(node)
-
+    
+    # 发送合并转发
     forward_data = {
         "action": "send_group_forward_msg",
         "params": {
@@ -119,7 +137,7 @@ async def send_forward_message(websocket, group_id: int, user_id: int, user_inpu
         }
     }
     await websocket.send(json.dumps(forward_data))
-    print(f"✅ 已发送合并转发（共 {len(messages)} 条消息）", flush=True)
+    print(f"✅ 已发送合并转发（共 {len(messages_list)} 条消息）", flush=True)
 
 
 # ========== 🔥 改进的学校提取 ==========
@@ -130,7 +148,7 @@ def extract_school_from_input(user_input: str) -> str:
         if alias in user_input or full_name in user_input:
             return full_name
     
-    # 🔥 移除战报相关关键词，避免误匹配
+    # 移除战报相关关键词，避免误匹配
     clean_input = re.sub(r'生成|战报|战绩|排名|查询|看看|显示|多少|现在|当前', '', user_input)
     clean_input = re.sub(r'第[\d一二三四五六七八九十]+周', '', clean_input)
     clean_input = re.sub(r'第[\d、,，\-到]+轮', '', clean_input)
@@ -158,7 +176,7 @@ def extract_school_from_input(user_input: str) -> str:
     return None
 
 
-# ========== 🔥 判断是否战报意图 ==========
+# ========== 判断是否战报意图 ==========
 def is_report_intent(user_input: str) -> bool:
     """判断用户是否想要战报"""
     # 明确包含战报关键词
@@ -175,20 +193,22 @@ def is_report_intent(user_input: str) -> bool:
     return False
 
 
-# ========== 🔥 生成绑定提示 ==========
-def get_bind_prompt(user_id: int) -> str:
-    """生成绑定学校提示"""
-    return f"""⚠️ 您还没有绑定学校，无法生成战报。
-
-📌 **请先绑定学校**，例如：
-  @机器人 绑定学校 二工大
-  @机器人 绑定学校 交大
-  @机器人 绑定学校 复旦
-
-📋 **查看所有参赛学校**：
-  @机器人 学校列表
-
-💡 绑定后，直接发送「生成战报」即可查询绑定学校的战报。"""
+# ========== 生成绑定提示 ==========
+def get_bind_prompt(user_id: int) -> List[str]:
+    """生成绑定学校提示（返回列表，用于合并转发）"""
+    return [
+        "⚠️ 您还没有绑定学校，无法生成战报。",
+        "",
+        "📌 **请先绑定学校**，例如：",
+        "  @机器人 绑定学校 二工大",
+        "  @机器人 绑定学校 交大",
+        "  @机器人 绑定学校 复旦",
+        "",
+        "📋 **查看所有参赛学校**：",
+        "  @机器人 学校列表",
+        "",
+        "💡 绑定后，直接发送「生成战报」即可查询绑定学校的战报。"
+    ]
 
 
 # ========== 处理单条消息 ==========
@@ -205,7 +225,8 @@ async def handle_message(message_data: dict, websocket):
 
     user_input = extract_text_without_at(message_data)
     if not user_input:
-        await send_group_message(websocket, group_id, "请告诉我你的需求，比如：生成战报 或 帮助")
+        await send_forward_message(websocket, group_id, user_id, user_input, 
+                                   ["请告诉我你的需求，比如：生成战报 或 帮助"], "提示")
         return
 
     print(f"📩 收到群消息：{user_input}", flush=True)
@@ -221,15 +242,12 @@ async def handle_message(message_data: dict, websocket):
             
             try:
                 reports = generate_weekly_report(school_keyword=school)
-                if isinstance(reports, list):
-                    await send_forward_message(websocket, group_id, user_id, user_input, reports)
-                else:
-                    await send_group_message(websocket, group_id, reports)
+                await send_forward_message(websocket, group_id, user_id, user_input, reports, "战报")
                 return
             except Exception as e:
                 error_msg = f"❌ 生成战报失败：{str(e)}"
                 print(error_msg, flush=True)
-                await send_group_message(websocket, group_id, error_msg)
+                await send_forward_message(websocket, group_id, user_id, user_input, [error_msg], "错误")
                 return
         
         else:
@@ -242,34 +260,29 @@ async def handle_message(message_data: dict, websocket):
                 
                 try:
                     reports = generate_weekly_report(school_keyword=bound_school)
-                    if isinstance(reports, list):
-                        await send_forward_message(websocket, group_id, user_id, user_input, reports)
-                    else:
-                        await send_group_message(websocket, group_id, reports)
+                    await send_forward_message(websocket, group_id, user_id, user_input, reports, "战报")
                     return
                 except Exception as e:
                     error_msg = f"❌ 生成战报失败：{str(e)}"
                     print(error_msg, flush=True)
-                    await send_group_message(websocket, group_id, error_msg)
+                    await send_forward_message(websocket, group_id, user_id, user_input, [error_msg], "错误")
                     return
             
             else:
-                # ===== 无绑定学校 → 提示绑定 =====
+                # ===== 无绑定学校 → 提示绑定（走合并转发） =====
                 print(f"⚠️ 用户 {user_id} 未绑定学校，发送绑定提示", flush=True)
-                await send_group_message(websocket, group_id, get_bind_prompt(user_id))
+                await send_forward_message(websocket, group_id, user_id, user_input, 
+                                           get_bind_prompt(user_id), "绑定提示")
                 return
 
     # ===== 非战报指令，交给 agent.py =====
     try:
         result = await asyncio.to_thread(run_agent, user_input, str(user_id))
-        if isinstance(result, list):
-            await send_forward_message(websocket, group_id, user_id, user_input, result)
-        else:
-            await send_group_message(websocket, group_id, str(result))
+        await send_forward_message(websocket, group_id, user_id, user_input, result, "结果")
     except Exception as e:
         error_msg = f"❌ 处理出错：{str(e)}"
         print(error_msg, flush=True)
-        await send_group_message(websocket, group_id, error_msg)
+        await send_forward_message(websocket, group_id, user_id, user_input, [error_msg], "错误")
 
 
 # ========== WebSocket 服务端 ==========
