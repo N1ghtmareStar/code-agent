@@ -4,6 +4,7 @@ import time
 import re
 from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
+from functools import lru_cache
 
 # ============================================================
 # 配置
@@ -15,11 +16,11 @@ CONTEST_ID = "6a5265acf78ec7d0138baa2d"
 EAST_TRACK_ID = "6a5265acf78ec7d0138baa2e"
 SOUTH_TRACK_ID = "6a526941f78ec7d0138baa33"
 
-REQUEST_TIMEOUT = 60
-MAX_RETRIES = 3
+REQUEST_TIMEOUT = 30  # 减少超时时间
+MAX_RETRIES = 2       # 减少重试次数
 
 # ============================================================
-# 顺位点（规则书第3.1、3.2节）
+# 顺位点
 # ============================================================
 EAST_RANK_BONUS = {1: 27, 2: 3, 3: -9, 4: -21}
 SOUTH_RANK_BONUS = {1: 45, 2: 5, 3: -15, 4: -35}
@@ -37,13 +38,17 @@ SCHOOL_NAME_FIX = {
     "对外经济贸易大": "对外经济贸易大学",
 }
 
-# 每周对应的轮次
-WEEK_ROUNDS = {
-    1: [1, 2],
-    2: [3, 4],
-    3: [5, 6],
-    4: [7, 8],
-}
+WEEK_ROUNDS = {1: [1, 2], 2: [3, 4], 3: [5, 6], 4: [7, 8]}
+
+# ============================================================
+# 全局开关：是否输出调试信息
+# ============================================================
+DEBUG = False  # 改为 False 关闭调试输出
+
+
+def debug_print(*args, **kwargs):
+    if DEBUG:
+        print(*args, **kwargs)
 
 
 # ============================================================
@@ -51,54 +56,65 @@ WEEK_ROUNDS = {
 # ============================================================
 
 def clean_name(text: str) -> str:
-    """移除常见的不可见字符（如 ㅤ U+3164）和首尾特殊空白"""
     if not isinstance(text, str):
         return text
-    # 移除常见的不可见字符：韩文填充字符、零宽字符、不间断空格等
     text = re.sub(r'[\u3164\u200b\u200c\u200d\u2060\uFEFF\u00A0\u3000]', '', text)
-    # 移除首尾空格
     return text.strip()
 
 
 # ============================================================
-# 带重试的请求函数
+# 带重试的请求函数（优化版）
 # ============================================================
 
 def fetch_with_retry(url: str, max_retries: int = MAX_RETRIES, timeout: int = REQUEST_TIMEOUT) -> requests.Response:
-    """带重试机制的请求函数"""
     for attempt in range(max_retries):
         try:
             resp = requests.get(url, timeout=timeout)
             resp.raise_for_status()
             return resp
         except requests.exceptions.Timeout:
-            print(f"⏱️ 请求超时 ({timeout}s)，第 {attempt + 1}/{max_retries} 次重试...")
+            debug_print(f"⏱️ 请求超时，第 {attempt + 1}/{max_retries} 次重试...")
             if attempt < max_retries - 1:
-                time.sleep(2)
+                time.sleep(1)
             else:
-                raise Exception(f"请求 {url} 超时，已重试 {max_retries} 次")
+                raise Exception(f"请求超时")
         except requests.exceptions.RequestException as e:
-            print(f"⚠️ 请求失败: {e}")
+            debug_print(f"⚠️ 请求失败: {e}")
             if attempt < max_retries - 1:
-                time.sleep(2)
+                time.sleep(1)
             else:
                 raise
 
 
 # ============================================================
-# 数据获取
+# 数据获取（添加缓存）
 # ============================================================
 
+_cache = {}
+
+
 def fetch_score_view(score_view_id: str) -> dict:
+    """获取 score-view 数据，带缓存"""
+    if score_view_id in _cache:
+        debug_print(f"📦 使用缓存: {score_view_id}")
+        return _cache[score_view_id]
+    
     url = f"{ARENA_BASE}/api/score-views/{score_view_id}/input"
-    print(f"📡 正在请求: {url}")
+    debug_print(f"📡 正在请求: {url}")
     resp = fetch_with_retry(url)
-    return resp.json()
+    data = resp.json()
+    _cache[score_view_id] = data
+    return data
 
 
 def fetch_participants(contest_id: str) -> Dict[str, str]:
+    cache_key = f"participants_{contest_id}"
+    if cache_key in _cache:
+        debug_print("📦 使用缓存的参赛方列表")
+        return _cache[cache_key]
+    
     url = f"{ARENA_BASE}/api/contests/{contest_id}/participants"
-    print(f"📡 正在请求参赛方列表: {url}")
+    debug_print(f"📡 正在请求参赛方列表: {url}")
     resp = fetch_with_retry(url)
     data = resp.json()
     
@@ -107,21 +123,36 @@ def fetch_participants(contest_id: str) -> Dict[str, str]:
         pid = item.get("id")
         name = item.get("name", "")
         if pid and name:
-            # 清洗学校名称
             name = clean_name(name)
             if name in SCHOOL_NAME_FIX:
                 name = SCHOOL_NAME_FIX[name]
             name_map[pid] = name
     
-    print(f"✅ 获取到 {len(name_map)} 个参赛方名称")
+    _cache[cache_key] = name_map
+    debug_print(f"✅ 获取到 {len(name_map)} 个参赛方名称")
     return name_map
 
 
 def fetch_contest_data() -> Tuple[dict, dict, Dict[str, str]]:
-    east_data = fetch_score_view(EAST_SCORE_VIEW_ID)
-    south_data = fetch_score_view(SOUTH_SCORE_VIEW_ID)
-    participants = fetch_participants(CONTEST_ID)
+    """并发获取数据（并行请求）"""
+    import concurrent.futures
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        east_future = executor.submit(fetch_score_view, EAST_SCORE_VIEW_ID)
+        south_future = executor.submit(fetch_score_view, SOUTH_SCORE_VIEW_ID)
+        participants_future = executor.submit(fetch_participants, CONTEST_ID)
+        
+        east_data = east_future.result()
+        south_data = south_future.result()
+        participants = participants_future.result()
+    
     return east_data, south_data, participants
+
+
+def clear_cache():
+    """清除缓存（用于测试）"""
+    global _cache
+    _cache = {}
 
 
 # ============================================================
@@ -158,7 +189,7 @@ def get_rounds_for_week(week_number: int) -> List[int]:
 
 
 # ============================================================
-# 数据解析
+# 数据解析（优化版：只解析需要的轮次）
 # ============================================================
 
 def parse_rounds_and_scores(data: dict, track_id: str, rank_bonus: Dict[int, int], round_filter: Optional[List[int]] = None) -> Dict[int, Dict[str, dict]]:
@@ -166,6 +197,7 @@ def parse_rounds_and_scores(data: dict, track_id: str, rank_bonus: Dict[int, int
     stages = data.get("stages", [])
     stage_track_map = {s.get("id"): s.get("trackId") for s in stages}
     
+    # 如果指定了 round_filter，只解析这些轮次
     for match in data.get("matches", []):
         if stage_track_map.get(match.get("stageId")) != track_id:
             continue
@@ -180,7 +212,6 @@ def parse_rounds_and_scores(data: dict, track_id: str, rank_bonus: Dict[int, int
                 pid = player.get("participantId")
                 score = player.get("score", 0)
                 rank = player.get("rank", 0)
-                # 清洗选手昵称
                 raw_name = player.get("snapshot", {}).get("nickname", "未知选手")
                 player_name = clean_name(raw_name)
                 if pid:
@@ -232,29 +263,24 @@ def calculate_team_scores(round_data: Dict[int, Dict[str, dict]]) -> Dict[str, d
 
 
 # ============================================================
-# 主函数
+# 主函数（优化版）
 # ============================================================
 
 def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
-    """
-    获取战报数据
-    total_score 始终是从第1轮开始的累计值
-    round_scores 包含每轮的总分
-    """
-    print("📊 开始从 Arena 获取数据...")
+    """获取战报数据，只请求必要的轮次"""
     if round_filter:
-        print(f"📌 过滤轮次: 第 {', '.join(map(str, round_filter))} 轮")
+        debug_print(f"📌 过滤轮次: 第 {', '.join(map(str, round_filter))} 轮")
     
-    # 获取从第1轮到当前轮次的所有数据（一次性请求）
+    # 获取从第1轮到当前轮次的所有数据
     all_rounds = list(range(1, max(round_filter) + 1)) if round_filter else None
     
+    # 并行请求数据
     east_data, south_data, participants = fetch_contest_data()
     
-    # 一次性解析所有轮次
+    # 解析数据
     east_rounds = parse_rounds_and_scores(east_data, EAST_TRACK_ID, EAST_RANK_BONUS, all_rounds)
     south_rounds = parse_rounds_and_scores(south_data, SOUTH_TRACK_ID, SOUTH_RANK_BONUS, all_rounds)
     
-    # 计算累计值（包含所有轮次）
     east_scores = calculate_team_scores(east_rounds)
     south_scores = calculate_team_scores(south_rounds)
     
@@ -290,7 +316,7 @@ def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
         data["final_rank"] = rank
         result["rankings"].append((pid, data["total_score"]))
     
-    print(f"✅ 成功获取 {len(result['teams'])} 个队伍的数据")
+    debug_print(f"✅ 成功获取 {len(result['teams'])} 个队伍的数据")
     return result
 
 
@@ -299,22 +325,24 @@ def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
 # ============================================================
 
 if __name__ == "__main__":
+    # 开启调试输出
+    global DEBUG
+    DEBUG = True
+    
     try:
-        print("\n=== 测试：获取第1-4轮数据 ===")
-        data = fetch_weekly_report_data([1, 2, 3, 4])
+        print("\n=== 测试：获取第3-4轮数据 ===")
+        import time
+        start = time.time()
+        data = fetch_weekly_report_data([3, 4])
+        elapsed = time.time() - start
+        print(f"⏱️ 耗时: {elapsed:.2f} 秒")
         
         for pid, team in data['teams'].items():
             if "第二工业" in team['name']:
                 print(f"✅ {team['name']}:")
                 print(f"   总累计: {team['total_score']:.1f}")
                 print(f"   东风累计: {team['east']['total_score']:.1f}")
-                print(f"   东风轮次明细: {team['east']['round_scores']}")
                 print(f"   半庄累计: {team['south']['total_score']:.1f}")
-                print(f"   半庄轮次明细: {team['south']['round_scores']}")
-        
-        with open("arena_data.json", "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        print("\n✅ 完整数据已保存到 arena_data.json")
         
     except Exception as e:
         print(f"❌ 错误: {e}")
