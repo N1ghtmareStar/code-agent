@@ -115,6 +115,17 @@ async def webhook(request: Request):
     return {"status": "ok"}
 
 
+# ===== 兼容 LangBot 的 Webhook 地址格式 =====
+@app.post("/bots/{bot_id}")
+async def bot_webhook(bot_id: str, request: Request):
+    """
+    兼容 LangBot 自动生成的 webhook 地址格式
+    LangBot 会发送消息到 /bots/{bot_id} 而不是 /webhook
+    """
+    print(f"📩 通过 /bots/{bot_id} 收到消息")
+    return await webhook(request)
+
+
 def is_at_bot(data: dict) -> bool:
     for seg in data.get("message", []):
         if seg.get("type") == "at" and str(seg.get("data", {}).get("qq")) == BOT_QQ:
