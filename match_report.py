@@ -120,10 +120,6 @@ SCHOOL_ALIAS = {
     # ===== 新增别名 =====
     "二工": "上海第二工业大",
     "交大": "上海交通大学",
-    "同济": "同济大学",
-    "复旦": "复旦大学",
-    "华师": "华东师范大学",
-    "华师大": "华东师范大学",
     "上外": "上海外国语大学",
     "东华": "东华大学",
     "上理": "上海理工大学",
@@ -143,6 +139,7 @@ SCHOOL_ALIAS = {
 
 
 def resolve_school_alias(keyword: str) -> str:
+    """🔥 解析学校别名，返回全称"""
     keyword = keyword.strip()
     # 精确匹配
     if keyword in SCHOOL_ALIAS:

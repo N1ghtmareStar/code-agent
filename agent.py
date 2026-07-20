@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from match_report import generate_weekly_report_text, SCHOOL_ALIAS, clear_cache
+# 🔥 导入 resolve_school_alias
+from match_report import generate_weekly_report_text, SCHOOL_ALIAS, clear_cache, resolve_school_alias
 
 # ============================================================
 # 配置
@@ -47,16 +48,20 @@ def save_bindings(bindings: dict):
         json.dump(bindings, f, ensure_ascii=False, indent=2)
 
 
-def get_user_school(user_id: str, default: str = "第二工业") -> str:
+def get_user_school(user_id: str, default: str = None) -> str:
     bindings = load_bindings()
     return bindings.get(str(user_id), default)
 
 
 def set_user_school(user_id: str, school: str) -> str:
+    """🔥 绑定学校，返回学校全称"""
+    # 解析学校全称
+    full_school_name = resolve_school_alias(school)
+    
     bindings = load_bindings()
-    bindings[str(user_id)] = school
+    bindings[str(user_id)] = full_school_name
     save_bindings(bindings)
-    return f"✅ 已绑定学校：{school}"
+    return f"✅ 已绑定学校：{full_school_name}"
 
 
 def clear_user_school(user_id: str) -> str:
@@ -74,7 +79,8 @@ def clear_user_school(user_id: str) -> str:
 
 def extract_school_keyword(text: str) -> Optional[str]:
     """提取学校关键词，支持别名映射"""
-    cleaned = re.sub(r'生成|战报', '', text).strip()
+    # 先移除战报相关关键词，避免误匹配
+    cleaned = re.sub(r'生成|战报|战绩|排名|查询|看看|显示|多少|现在|当前', '', text)
     cleaned = re.sub(r'第[\d一二三四五六七八九十]+周', '', cleaned)
     cleaned = re.sub(r'第[\d、,，\-到]+轮', '', cleaned)
     cleaned = re.sub(r'[一二三四五六七八九十]+周', '', cleaned)
@@ -85,7 +91,7 @@ def extract_school_keyword(text: str) -> Optional[str]:
     if not cleaned:
         return None
     
-    # 🔥 先检查别名映射
+    # 先检查别名映射
     for alias, full_name in SCHOOL_ALIAS.items():
         if alias in cleaned or full_name in cleaned:
             return full_name
@@ -94,7 +100,6 @@ def extract_school_keyword(text: str) -> Optional[str]:
     match = re.search(r'([\u4e00-\u9fa5]{2,4}(?:大学|学院|大)?)', cleaned)
     if match:
         school = match.group(1)
-        # 过滤无效词
         invalid_words = ["请", "我", "你", "他", "这", "那", "什么", "怎么", "的", "了", "吗", "呢", "吧", "啊", "如何", "联合杯"]
         if school not in invalid_words:
             return school
@@ -482,6 +487,7 @@ def run_agent(user_input: str, user_id: str = None):
         match = re.search(r'绑定学校\s*([\u4e00-\u9fa5]{2,}?)', user_input_clean)
         if match:
             school = match.group(1).strip()
+            # 🔥 使用 set_user_school（已内置别名解析）
             return set_user_school(user_id, school)
         return "⚠️ 请指定要绑定的学校，例如：绑定学校 二工大"
     
