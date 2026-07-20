@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request, Query
 import json
 import os
 import requests
+import re
 from agent import run_agent
 from match_report import generate_weekly_report
 
@@ -21,12 +22,12 @@ async def health():
     return {"status": "ok"}
 
 
-# ===== 战报 API =====
+# ===== 战报 API（供外部调用） =====
 @app.get("/api/match-report/generate")
-async def generate_report(
-    school: str = Query(..., description="学校名称或别名，如：第二工业、北大"),
-    week: int = Query(None, description="周数（1-8）"),
-    rounds: str = Query(None, description="轮次，逗号分隔，如：1,2,3,4")
+async def generate_report_api(
+    school: str = Query(..., description="学校名称或别名"),
+    week: int = Query(None, description="周数"),
+    rounds: str = Query(None, description="轮次，逗号分隔")
 ):
     """生成第五届联合杯战报"""
     try:
@@ -46,21 +47,17 @@ async def generate_report(
             }
         }
     except Exception as e:
-        return {
-            "status": "error",
-            "message": str(e)
-        }
+        return {"status": "error", "message": str(e)}
 
 
 @app.get("/api/match-report/schools")
 async def search_schools(keyword: str = Query(..., description="学校关键词")):
-    """搜索学校（自动补全）"""
+    """搜索学校"""
     from match_report import SCHOOL_ALIAS
     results = []
     for alias, full_name in SCHOOL_ALIAS.items():
         if keyword.lower() in alias.lower() or keyword.lower() in full_name.lower():
             results.append({"alias": alias, "full_name": full_name})
-    # 去重
     seen = set()
     unique = []
     for r in results:
@@ -77,9 +74,11 @@ async def webhook(request: Request):
     except:
         return {"status": "error", "message": "Invalid JSON"}
 
+    # 只处理群消息
     if data.get("post_type") != "message" or data.get("message_type") != "group":
         return {"status": "ok"}
 
+    # 检查是否 @ 了机器人
     if not is_at_bot(data):
         return {"status": "ok"}
 
@@ -92,6 +91,24 @@ async def webhook(request: Request):
 
     print(f"📩 收到消息：{user_input}")
 
+    # ===== 战报指令处理（优先） =====
+    if re.search(r'战报|生成战报', user_input):
+        # 提取学校名称
+        match = re.search(r'(?:战报|生成战报)(?:[\s]+)?(.+?)(?:\s|$)', user_input)
+        school = match.group(1) if match else "第二工业"
+        
+        print(f"📊 生成战报，学校：{school}")
+        
+        try:
+            reports = generate_weekly_report(school_keyword=school)
+            send_forward(group_id, user_id, reports)
+            return {"status": "ok"}
+        except Exception as e:
+            print(f"❌ 战报生成失败：{e}")
+            send_message(group_id, f"@{user_id} ❌ 生成战报失败：{str(e)}")
+            return {"status": "ok"}
+
+    # ===== 其他指令交给 Agent 处理 =====
     result = run_agent(user_input, str(user_id))
     send_reply(group_id, user_id, result)
 
@@ -129,6 +146,7 @@ def send_message(group_id: int, content: str):
 
 
 def send_forward(group_id: int, user_id: int, messages: list):
+    # 先发送提示消息
     send_message(group_id, f"@{user_id} 您要的战报已生成，请查看下方聊天记录 👇")
     nodes = []
     for msg in messages:
