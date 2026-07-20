@@ -3,8 +3,7 @@ import re
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
-# 导入 arena_fetcher
-from arena_fetcher import fetch_weekly_report_data, EAST_RANK_BONUS, SOUTH_RANK_BONUS
+from arena_fetcher import fetch_weekly_report_data, EAST_RANK_BONUS, SOUTH_RANK_BONUS, get_rounds_for_week, get_latest_completed_rounds
 
 # ============================================================
 # 别名映射表
@@ -110,10 +109,6 @@ def resolve_school_alias(keyword: str) -> str:
     return keyword
 
 
-# ============================================================
-# 从 Arena 数据中查找学校
-# ============================================================
-
 def find_school_in_arena(data: dict, school_keyword: str) -> Tuple[Optional[str], Optional[dict]]:
     school_keyword = school_keyword.strip()
     if not school_keyword:
@@ -147,16 +142,7 @@ def find_school_in_arena(data: dict, school_keyword: str) -> Tuple[Optional[str]
     return best_name, best_match
 
 
-# ============================================================
-# 格式化明细（显示实际得分 = 精算点 + 顺位点）
-# ============================================================
-
 def format_details_from_arena(details: List[dict], rank_bonus: Dict[int, int]) -> str:
-    """
-    从 Arena 的明细数据生成格式化的明细字符串
-    格式：•  选手名 | 顺位 | 完场点数（实际得分）
-    实际得分 = 精算点 + 顺位点
-    """
     if not details:
         return "暂无详细数据"
     
@@ -164,10 +150,10 @@ def format_details_from_arena(details: List[dict], rank_bonus: Dict[int, int]) -
     for item in details:
         player_name = item.get("player_name", "未知选手")
         rank = item.get("rank", 0)
-        score = item.get("score", 0)  # 完场点数
-        alap_score = (score - 25000) / 1000.0  # 精算点
-        rank_point = rank_bonus.get(rank, 0)   # 顺位点
-        total_score = alap_score + rank_point  # 实际得分
+        score = item.get("score", 0)
+        alap_score = (score - 25000) / 1000.0
+        rank_point = rank_bonus.get(rank, 0)
+        total_score = alap_score + rank_point
         
         total_str = f"+{total_score:.2f}" if total_score >= 0 else f"{total_score:.2f}"
         result_lines.append(f"•  {player_name} | {rank}位 | {score}（{total_str}）")
@@ -177,21 +163,38 @@ def format_details_from_arena(details: List[dict], rank_bonus: Dict[int, int]) -
     return "\n".join(result_lines)
 
 
-# ============================================================
-# 战报生成（从 Arena 获取数据）
-# ============================================================
-
 def generate_weekly_report(
     school_keyword: str = "第二工业",
+    week_number: Optional[int] = None,
+    round_numbers: Optional[List[int]] = None,
     last_week_data: Optional[dict] = None,
-    week_number: Optional[int] = None
+    title: Optional[str] = None
 ) -> List[str]:
-    """从 Arena 获取数据并生成战报，返回消息列表"""
+    """
+    生成战报
     
+    参数:
+        school_keyword: 学校关键词
+        week_number: 周数（1-4），如果指定则自动计算对应的轮次
+        round_numbers: 指定轮次列表，如 [1, 2, 3, 4]
+        last_week_data: 上周数据（用于计算增量）
+        title: 自定义标题，如果不指定则自动生成
+    
+    优先级: round_numbers > week_number > 默认（最新两轮）
+    """
     original_keyword = school_keyword
     
+    # 确定轮次
+    if round_numbers is not None:
+        target_rounds = round_numbers
+    elif week_number is not None:
+        target_rounds = get_rounds_for_week(week_number)
+    else:
+        # 默认：获取最新已完成的两轮
+        target_rounds = get_latest_completed_rounds(2)
+    
     try:
-        arena_data = fetch_weekly_report_data()
+        arena_data = fetch_weekly_report_data(target_rounds)
     except Exception as e:
         return [f"❌ 从 Arena 获取数据失败：{str(e)}"]
     
@@ -206,7 +209,6 @@ def generate_weekly_report(
         if last_team and last_team[1]:
             last_total = last_team[1].get("total_score", 0.0)
     
-    # 当前数据
     east = school_data.get("east", {})
     south = school_data.get("south", {})
     total_score = school_data.get("total_score", 0.0)
@@ -217,19 +219,20 @@ def generate_weekly_report(
     delta_south = south.get("total_score", 0.0)
     rank_desc = "持平"
     
-    if week_number is None:
-        current_round = arena_data.get("current_round", 0)
-        week_title = f"第{current_round}周战报"
-    else:
+    # 生成标题
+    if title:
+        week_title = title
+    elif week_number is not None:
         week_title = f"第{week_number}周战报"
+    else:
+        round_str = f"第{target_rounds[0]}-{target_rounds[-1]}轮" if len(target_rounds) > 1 else f"第{target_rounds[0]}轮"
+        week_title = f"{round_str}战报"
     
-    # 明细（分别传入对应的顺位点规则）
     east_details = east.get("details", [])
     south_details = south.get("details", [])
     east_detail = format_details_from_arena(east_details, EAST_RANK_BONUS)
     south_detail = format_details_from_arena(south_details, SOUTH_RANK_BONUS)
     
-    # ===== 消息1 =====
     msg1 = f"""📊 第五届联合杯 · {week_title}
 
 🏫 参赛学校：{school_name}
@@ -242,7 +245,6 @@ def generate_weekly_report(
 •  当前累计分数：{total_score:.1f} 分
 •  当前排名：第 {final_rank} 名（{rank_desc}）"""
 
-    # ===== 消息2 =====
     msg2 = f"""🀀 东风赛道：{east.get('total_score', 0):.1f} 分（{delta_east:+.1f} 分）
 •  顺位：1位{east.get('rank_1', 0)}次 / 2位{east.get('rank_2', 0)}次 / 3位{east.get('rank_3', 0)}次 / 4位{east.get('rank_4', 0)}次
 
@@ -250,7 +252,6 @@ def generate_weekly_report(
 📌 本周明细（东风）：
 {east_detail}"""
 
-    # ===== 消息3 =====
     msg3 = f"""🀁 半庄赛道：{south.get('total_score', 0):.1f} 分（{delta_south:+.1f} 分）
 •  顺位：1位{south.get('rank_1', 0)}次 / 2位{south.get('rank_2', 0)}次 / 3位{south.get('rank_3', 0)}次 / 4位{south.get('rank_4', 0)}次
 
@@ -267,9 +268,16 @@ def generate_weekly_report(
 
 if __name__ == "__main__":
     try:
+        print("\n=== 测试1：默认（最新两轮）===")
         reports = generate_weekly_report(school_keyword="第二工业")
         for i, msg in enumerate(reports, 1):
             print(f"消息{i}:\n{msg}\n")
+        
+        print("\n=== 测试2：第1周（第1、2轮）===")
+        reports_week1 = generate_weekly_report(school_keyword="第二工业", week_number=1)
+        for i, msg in enumerate(reports_week1, 1):
+            print(f"消息{i}:\n{msg}\n")
+        
     except Exception as e:
         print(f"❌ 测试失败：{e}")
         import traceback
