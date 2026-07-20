@@ -33,7 +33,6 @@ BINDINGS_FILE = "user_bindings.json"
 
 
 def load_bindings() -> dict:
-    """加载用户绑定数据"""
     if os.path.exists(BINDINGS_FILE):
         try:
             with open(BINDINGS_FILE, "r", encoding="utf-8") as f:
@@ -44,19 +43,16 @@ def load_bindings() -> dict:
 
 
 def save_bindings(bindings: dict):
-    """保存用户绑定数据"""
     with open(BINDINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(bindings, f, ensure_ascii=False, indent=2)
 
 
 def get_user_school(user_id: str, default: str = "第二工业") -> str:
-    """获取用户绑定的学校"""
     bindings = load_bindings()
     return bindings.get(str(user_id), default)
 
 
 def set_user_school(user_id: str, school: str) -> str:
-    """设置用户绑定的学校"""
     bindings = load_bindings()
     bindings[str(user_id)] = school
     save_bindings(bindings)
@@ -64,7 +60,6 @@ def set_user_school(user_id: str, school: str) -> str:
 
 
 def clear_user_school(user_id: str) -> str:
-    """清除用户绑定的学校"""
     bindings = load_bindings()
     if str(user_id) in bindings:
         del bindings[str(user_id)]
@@ -77,7 +72,8 @@ def clear_user_school(user_id: str) -> str:
 # 1. 工具函数
 # ============================================================
 
-def extract_school_keyword(text: str, default: str = "第二工业") -> str:
+def extract_school_keyword(text: str) -> Optional[str]:
+    """提取学校关键词，没有则返回 None"""
     cleaned = text.replace("生成", "").replace("战报", "").strip()
     cleaned = re.sub(r'第[\d一二三四五六七八九十]+周', '', cleaned)
     cleaned = re.sub(r'第[\d、,，\-到]+轮', '', cleaned)
@@ -90,13 +86,13 @@ def extract_school_keyword(text: str, default: str = "第二工业") -> str:
     cleaned = cleaned.strip()
     
     if not cleaned:
-        return default
+        return None
     
     match = re.search(r'([\u4e00-\u9fa5]{2,4}大?)', cleaned)
     if match:
         return match.group(1)
     
-    return default
+    return None
 
 
 def extract_week_number(text: str) -> Optional[int]:
@@ -165,18 +161,20 @@ def call_llm(prompt: str) -> str:
 
 
 def generate_code_with_llm(user_input: str, user_id: str = None) -> str:
+    # 1. 从用户输入中提取学校
     school = extract_school_keyword(user_input)
+    
+    # 2. 如果提取不到，使用绑定的学校
+    if school is None:
+        if user_id:
+            school = get_user_school(user_id, default="第二工业")
+        else:
+            school = "第二工业"
+    
     week = extract_week_number(user_input)
     rounds = extract_round_numbers(user_input)
     
-    # 如果用户指定了学校，使用指定的
-    if school:
-        pass  # 使用提取到的学校
-    elif user_id:
-        school = get_user_school(user_id, default="第二工业")
-    else:
-        school = "第二工业"
-    
+    # 如果本地规则已经明确匹配到了，直接用
     if week is not None:
         return f"""
 print(generate_weekly_report_text(school_keyword="{school}", week_number={week}))
@@ -186,6 +184,7 @@ print(generate_weekly_report_text(school_keyword="{school}", week_number={week})
 print(generate_weekly_report_text(school_keyword="{school}", round_numbers={rounds}))
 """
     
+    # 否则调用大模型
     print("--- 调用大模型解析指令 ---")
     
     prompt = f"""
