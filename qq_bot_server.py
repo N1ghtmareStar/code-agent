@@ -10,7 +10,7 @@ import re
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from agent import run_agent
-from match_report import generate_weekly_report
+from match_report import generate_weekly_report, SCHOOL_ALIAS
 
 # ========== 配置 ==========
 HOST = "0.0.0.0"
@@ -91,7 +91,6 @@ async def send_group_message(websocket, group_id: int, content):
 
 async def send_forward_message(websocket, group_id: int, user_id: int, user_input: str, messages: list):
     """发送合并转发消息"""
-    # 1. 发送 @ 提醒
     at_text = generate_at_text(user_input)
     at_segments = [
         {"type": "at", "data": {"qq": user_id}},
@@ -100,7 +99,6 @@ async def send_forward_message(websocket, group_id: int, user_id: int, user_inpu
     await send_group_message(websocket, group_id, at_segments)
     await asyncio.sleep(0.5)
 
-    # 2. 构建合并转发节点
     forward_nodes = []
     for msg in messages:
         node = {
@@ -124,56 +122,44 @@ async def send_forward_message(websocket, group_id: int, user_id: int, user_inpu
     print(f"✅ 已发送合并转发（共 {len(messages)} 条消息）", flush=True)
 
 
-# ========== 提取学校名称 ==========
+# ========== 🔥 改进的学校提取 ==========
 def extract_school_from_input(user_input: str) -> str:
     """从用户输入中提取学校名称"""
-    clean = re.sub(r'生成|战报', '', user_input).strip()
+    # 先尝试匹配常见学校名（2-4个中文字符，可能以大学/学院/大结尾）
+    school_match = re.search(r'([\u4e00-\u9fa5]{2,4}(?:大学|学院|大)?)', user_input)
+    if school_match:
+        school = school_match.group(1)
+        invalid_words = ["请", "我", "你", "他", "这", "那", "什么", "怎么", "的", "了", "吗", "呢", "吧", "啊", "如何", "联合杯"]
+        if school not in invalid_words:
+            # 检查别名映射
+            for alias, full_name in SCHOOL_ALIAS.items():
+                if school in alias or school in full_name:
+                    return full_name if len(full_name) > len(school) else school
+            return school
     
-    if not clean:
-        return None
+    # 从别名映射表中匹配
+    for alias, full_name in SCHOOL_ALIAS.items():
+        if alias in user_input or full_name in user_input:
+            return full_name
     
-    clean = re.sub(r'第[\d一二三四五六七八九十]+周', '', clean)
-    clean = re.sub(r'第[\d、,，\-到]+轮', '', clean)
-    clean = re.sub(r'[一二三四五六七八九十]+周', '', clean)
-    clean = re.sub(r'[一二三四五六七八九十]+轮', '', clean)
-    clean = clean.strip()
-    
-    if not clean:
-        return None
-    
-    parts = clean.split()
-    school = parts[0] if parts else None
-    
-    invalid_words = ["请", "我", "你", "他", "这", "那", "什么", "怎么", "的", "了", "吗", "呢", "吧", "啊"]
-    if school in invalid_words:
-        return None
-    
-    return school
-
-
-def extract_week_from_input(user_input: str) -> int:
-    """从用户输入中提取周数"""
-    match = re.search(r'第(\d+)周', user_input)
-    if match:
-        return int(match.group(1))
     return None
 
 
-def extract_rounds_from_input(user_input: str) -> list:
-    """从用户输入中提取轮次"""
-    match = re.search(r'第([\d、,，]+)轮', user_input)
-    if match:
-        parts = re.split(r'[、,，]', match.group(1))
-        rounds = [int(p.strip()) for p in parts if p.strip().isdigit()]
-        if rounds:
-            return rounds
-    match = re.search(r'第(\d+)[-到](\d+)轮', user_input)
-    if match:
-        return list(range(int(match.group(1)), int(match.group(2)) + 1))
-    match = re.search(r'第(\d+)轮', user_input)
-    if match:
-        return [int(match.group(1))]
-    return None
+# ========== 🔥 判断是否战报意图 ==========
+def is_report_intent(user_input: str) -> bool:
+    """判断用户是否想要战报"""
+    # 明确包含战报关键词
+    if re.search(r'战报|战绩|排名', user_input):
+        return True
+    
+    # 包含学校名称 + 查询意图
+    school = extract_school_from_input(user_input)
+    if school:
+        query_keywords = ['怎么样', '如何', '情况', '查询', '看看', '显示', '多少', '现在', '当前']
+        if any(kw in user_input for kw in query_keywords):
+            return True
+    
+    return False
 
 
 # ========== 处理单条消息 ==========
@@ -195,30 +181,20 @@ async def handle_message(message_data: dict, websocket):
 
     print(f"📩 收到群消息：{user_input}", flush=True)
 
-    # ===== 战报指令处理 =====
-    if re.search(r'战报|生成战报', user_input):
+    # ===== 🔥 战报指令检测（更宽松） =====
+    if is_report_intent(user_input):
         school = extract_school_from_input(user_input)
-        week = extract_week_from_input(user_input)
-        rounds = extract_rounds_from_input(user_input)
         
-        # 判断是本地规则还是需要大模型
         if school is not None:
-            # ===== 本地规则路径（不显示"正在查询"） =====
+            # ===== 本地规则路径（快速） =====
             print(f"⚡ 本地规则处理，学校：{school}", flush=True)
             
             try:
-                if week is not None:
-                    reports = generate_weekly_report(school_keyword=school, week_number=week)
-                elif rounds is not None:
-                    reports = generate_weekly_report(school_keyword=school, round_numbers=rounds)
-                else:
-                    reports = generate_weekly_report(school_keyword=school)
-                
+                reports = generate_weekly_report(school_keyword=school)
                 if isinstance(reports, list):
                     await send_forward_message(websocket, group_id, user_id, user_input, reports)
                 else:
                     await send_group_message(websocket, group_id, reports)
-                
                 return
             except Exception as e:
                 error_msg = f"❌ 生成战报失败：{str(e)}"
@@ -227,25 +203,16 @@ async def handle_message(message_data: dict, websocket):
                 return
         
         else:
-            # ===== 🔥 大模型路径（显示"正在查询"） =====
+            # ===== 大模型路径 =====
             print(f"🤖 需要大模型解析指令", flush=True)
-            
-            # 先发送"正在查询"提示
             await send_group_message(websocket, group_id, f"⏳ 正在解析您的指令，请稍候...")
             
             try:
-                # 调用 agent.py 处理（会调用大模型）
                 result = await asyncio.to_thread(run_agent, user_input, str(user_id))
-                
-                print(f"📤 qq_bot_server 收到结果类型：{type(result)}", flush=True)
-                
-                # 🔥 检查结果类型，支持合并转发
                 if isinstance(result, list):
-                    print(f"📤 发送合并转发，共 {len(result)} 条", flush=True)
                     await send_forward_message(websocket, group_id, user_id, user_input, result)
                 else:
                     await send_group_message(websocket, group_id, str(result))
-                
                 return
             except Exception as e:
                 error_msg = f"❌ 处理失败：{str(e)}"
@@ -253,15 +220,13 @@ async def handle_message(message_data: dict, websocket):
                 await send_group_message(websocket, group_id, error_msg)
                 return
 
-    # ===== 非战报指令，直接交给 agent.py =====
+    # ===== 非战报指令，交给 agent.py =====
     try:
         result = await asyncio.to_thread(run_agent, user_input, str(user_id))
-        
         if isinstance(result, list):
             await send_forward_message(websocket, group_id, user_id, user_input, result)
         else:
             await send_group_message(websocket, group_id, str(result))
-        
     except Exception as e:
         error_msg = f"❌ 处理出错：{str(e)}"
         print(error_msg, flush=True)
