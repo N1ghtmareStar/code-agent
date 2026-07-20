@@ -170,3 +170,10 @@ def send_forward(group_id: int, user_id: int, messages: list):
         requests.post(url, json={"group_id": group_id, "messages": nodes}, timeout=5)
     except Exception as e:
         print(f"发送合并转发失败: {e}")
+
+
+# ===== 启动代码（新增） =====
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
