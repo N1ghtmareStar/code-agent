@@ -4,7 +4,6 @@ import time
 import re
 from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
-from functools import lru_cache
 
 # ============================================================
 # 配置
@@ -16,8 +15,8 @@ CONTEST_ID = "6a5265acf78ec7d0138baa2d"
 EAST_TRACK_ID = "6a5265acf78ec7d0138baa2e"
 SOUTH_TRACK_ID = "6a526941f78ec7d0138baa33"
 
-REQUEST_TIMEOUT = 30  # 减少超时时间
-MAX_RETRIES = 2       # 减少重试次数
+REQUEST_TIMEOUT = 30
+MAX_RETRIES = 2
 
 # ============================================================
 # 顺位点
@@ -43,7 +42,7 @@ WEEK_ROUNDS = {1: [1, 2], 2: [3, 4], 3: [5, 6], 4: [7, 8]}
 # ============================================================
 # 全局开关：是否输出调试信息
 # ============================================================
-DEBUG = False  # 改为 False 关闭调试输出
+DEBUG = False
 
 
 def debug_print(*args, **kwargs):
@@ -63,7 +62,7 @@ def clean_name(text: str) -> str:
 
 
 # ============================================================
-# 带重试的请求函数（优化版）
+# 带重试的请求函数
 # ============================================================
 
 def fetch_with_retry(url: str, max_retries: int = MAX_RETRIES, timeout: int = REQUEST_TIMEOUT) -> requests.Response:
@@ -87,14 +86,13 @@ def fetch_with_retry(url: str, max_retries: int = MAX_RETRIES, timeout: int = RE
 
 
 # ============================================================
-# 数据获取（添加缓存）
+# 数据获取（带缓存）
 # ============================================================
 
 _cache = {}
 
 
 def fetch_score_view(score_view_id: str) -> dict:
-    """获取 score-view 数据，带缓存"""
     if score_view_id in _cache:
         debug_print(f"📦 使用缓存: {score_view_id}")
         return _cache[score_view_id]
@@ -134,7 +132,6 @@ def fetch_participants(contest_id: str) -> Dict[str, str]:
 
 
 def fetch_contest_data() -> Tuple[dict, dict, Dict[str, str]]:
-    """并发获取数据（并行请求）"""
     import concurrent.futures
     
     with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
@@ -150,7 +147,6 @@ def fetch_contest_data() -> Tuple[dict, dict, Dict[str, str]]:
 
 
 def clear_cache():
-    """清除缓存（用于测试）"""
     global _cache
     _cache = {}
 
@@ -189,7 +185,7 @@ def get_rounds_for_week(week_number: int) -> List[int]:
 
 
 # ============================================================
-# 数据解析（优化版：只解析需要的轮次）
+# 数据解析
 # ============================================================
 
 def parse_rounds_and_scores(data: dict, track_id: str, rank_bonus: Dict[int, int], round_filter: Optional[List[int]] = None) -> Dict[int, Dict[str, dict]]:
@@ -197,7 +193,6 @@ def parse_rounds_and_scores(data: dict, track_id: str, rank_bonus: Dict[int, int
     stages = data.get("stages", [])
     stage_track_map = {s.get("id"): s.get("trackId") for s in stages}
     
-    # 如果指定了 round_filter，只解析这些轮次
     for match in data.get("matches", []):
         if stage_track_map.get(match.get("stageId")) != track_id:
             continue
@@ -263,21 +258,17 @@ def calculate_team_scores(round_data: Dict[int, Dict[str, dict]]) -> Dict[str, d
 
 
 # ============================================================
-# 主函数（优化版）
+# 主函数
 # ============================================================
 
 def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
-    """获取战报数据，只请求必要的轮次"""
     if round_filter:
         debug_print(f"📌 过滤轮次: 第 {', '.join(map(str, round_filter))} 轮")
     
-    # 获取从第1轮到当前轮次的所有数据
     all_rounds = list(range(1, max(round_filter) + 1)) if round_filter else None
     
-    # 并行请求数据
     east_data, south_data, participants = fetch_contest_data()
     
-    # 解析数据
     east_rounds = parse_rounds_and_scores(east_data, EAST_TRACK_ID, EAST_RANK_BONUS, all_rounds)
     south_rounds = parse_rounds_and_scores(south_data, SOUTH_TRACK_ID, SOUTH_RANK_BONUS, all_rounds)
     
@@ -326,12 +317,11 @@ def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
 
 if __name__ == "__main__":
     # 开启调试输出
-    global DEBUG
-    DEBUG = True
+    import arena_fetcher
+    arena_fetcher.DEBUG = True
     
     try:
         print("\n=== 测试：获取第3-4轮数据 ===")
-        import time
         start = time.time()
         data = fetch_weekly_report_data([3, 4])
         elapsed = time.time() - start
