@@ -259,9 +259,9 @@ def generate_weekly_report(
     if last_final_rank == 0:
         rank_desc = "持平"
     elif final_rank < last_final_rank:
-        rank_desc = f"↑ {last_final_rank - final_rank} 名"
+        rank_desc = f"↑ {last_final_rank - final_rank} "
     elif final_rank > last_final_rank:
-        rank_desc = f"↓ {final_rank - last_final_rank} 名"
+        rank_desc = f"↓ {final_rank - last_final_rank} "
     else:
         rank_desc = "持平"
     
