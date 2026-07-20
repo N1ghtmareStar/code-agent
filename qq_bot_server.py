@@ -124,16 +124,14 @@ async def send_forward_message(websocket, group_id: int, user_id: int, user_inpu
     print(f"✅ 已发送合并转发（共 {len(messages)} 条消息）", flush=True)
 
 
-# ========== 🔥 修复：提取学校名称 ==========
+# ========== 提取学校名称 ==========
 def extract_school_from_input(user_input: str) -> str:
     """从用户输入中提取学校名称"""
-    # 去掉"生成"和"战报"
     clean = re.sub(r'生成|战报', '', user_input).strip()
     
     if not clean:
-        return "第二工业"
+        return None
     
-    # 去掉周数轮数相关
     clean = re.sub(r'第[\d一二三四五六七八九十]+周', '', clean)
     clean = re.sub(r'第[\d、,，\-到]+轮', '', clean)
     clean = re.sub(r'[一二三四五六七八九十]+周', '', clean)
@@ -141,18 +139,50 @@ def extract_school_from_input(user_input: str) -> str:
     clean = clean.strip()
     
     if not clean:
-        return "第二工业"
+        return None
     
-    # 取第一个词作为学校名
     parts = clean.split()
-    school = parts[0] if parts else "第二工业"
+    school = parts[0] if parts else None
     
-    # 如果提取到的是无效词，使用默认
     invalid_words = ["请", "我", "你", "他", "这", "那", "什么", "怎么", "的", "了", "吗", "呢", "吧", "啊"]
     if school in invalid_words:
-        return "第二工业"
+        return None
     
     return school
+
+
+def extract_week_from_input(user_input: str) -> int:
+    """从用户输入中提取周数"""
+    match = re.search(r'第(\d+)周', user_input)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def extract_rounds_from_input(user_input: str) -> list:
+    """从用户输入中提取轮次"""
+    match = re.search(r'第([\d、,，]+)轮', user_input)
+    if match:
+        parts = re.split(r'[、,，]', match.group(1))
+        rounds = [int(p.strip()) for p in parts if p.strip().isdigit()]
+        if rounds:
+            return rounds
+    match = re.search(r'第(\d+)[-到](\d+)轮', user_input)
+    if match:
+        return list(range(int(match.group(1)), int(match.group(2)) + 1))
+    match = re.search(r'第(\d+)轮', user_input)
+    if match:
+        return [int(match.group(1))]
+    return None
+
+
+def is_local_report_command(user_input: str) -> bool:
+    """判断是否能本地处理（不调用大模型）"""
+    if not re.search(r'战报|生成战报', user_input):
+        return False
+    
+    school = extract_school_from_input(user_input)
+    return school is not None
 
 
 # ========== 处理单条消息 ==========
@@ -169,48 +199,76 @@ async def handle_message(message_data: dict, websocket):
 
     user_input = extract_text_without_at(message_data)
     if not user_input:
-        await send_group_message(websocket, group_id, "请告诉我你的需求，比如：给我10个随机数 或 生成战报")
+        await send_group_message(websocket, group_id, "请告诉我你的需求，比如：生成战报 或 帮助")
         return
 
     print(f"📩 收到群消息：{user_input}", flush=True)
 
-    # ===== 🔥 战报指令优先处理（修复学校提取） =====
+    # ===== 🔥 战报指令处理 =====
     if re.search(r'战报|生成战报', user_input):
-        # 使用改进的提取函数
         school = extract_school_from_input(user_input)
-        print(f"🔍 提取到的学校名: '{school}'", flush=True)
-        print(f"📊 生成战报，学校：{school}", flush=True)
+        week = extract_week_from_input(user_input)
+        rounds = extract_rounds_from_input(user_input)
+        
+        # 🔥 判断是本地规则还是需要大模型
+        if school is not None:
+            # ===== 本地规则路径（不显示"正在查询"） =====
+            print(f"⚡ 本地规则处理，学校：{school}", flush=True)
+            
+            try:
+                if week is not None:
+                    reports = generate_weekly_report(school_keyword=school, week_number=week)
+                elif rounds is not None:
+                    reports = generate_weekly_report(school_keyword=school, round_numbers=rounds)
+                else:
+                    reports = generate_weekly_report(school_keyword=school)
+                
+                if isinstance(reports, list):
+                    await send_forward_message(websocket, group_id, user_id, user_input, reports)
+                else:
+                    await send_group_message(websocket, group_id, reports)
+                
+                return
+            except Exception as e:
+                error_msg = f"❌ 生成战报失败：{str(e)}"
+                print(error_msg, flush=True)
+                await send_group_message(websocket, group_id, error_msg)
+                return
+        
+        else:
+            # ===== 🔥 大模型路径（显示"正在查询"） =====
+            print(f"🤖 需要大模型解析指令", flush=True)
+            
+            # 先发送"正在查询"提示
+            await send_group_message(websocket, group_id, f"⏳ 正在解析您的指令，请稍候...")
+            
+            try:
+                # 调用 agent.py 处理（会调用大模型）
+                result = await asyncio.to_thread(run_agent, user_input, str(user_id))
+                result = try_parse_list(result)
+                
+                if isinstance(result, list):
+                    await send_forward_message(websocket, group_id, user_id, user_input, result)
+                else:
+                    await send_group_message(websocket, group_id, result)
+                
+                return
+            except Exception as e:
+                error_msg = f"❌ 处理失败：{str(e)}"
+                print(error_msg, flush=True)
+                await send_group_message(websocket, group_id, error_msg)
+                return
 
-        try:
-            # 先发"正在查询"提示
-            await send_group_message(websocket, group_id, f"⏳ 正在查询 {school} 的战报，请稍候...")
-
-            # 生成战报
-            reports = generate_weekly_report(school_keyword=school)
-
-            # 发送战报
-            if isinstance(reports, list):
-                await send_forward_message(websocket, group_id, user_id, user_input, reports)
-            else:
-                await send_group_message(websocket, group_id, reports)
-
-            return
-        except Exception as e:
-            error_msg = f"❌ 生成战报失败：{str(e)}"
-            print(error_msg, flush=True)
-            await send_group_message(websocket, group_id, error_msg)
-            return
-
-    # ===== 原有 Agent 逻辑 =====
+    # ===== 非战报指令，直接交给 agent.py =====
     try:
         result = await asyncio.to_thread(run_agent, user_input, str(user_id))
         result = try_parse_list(result)
-
+        
         if isinstance(result, list):
             await send_forward_message(websocket, group_id, user_id, user_input, result)
         else:
             await send_group_message(websocket, group_id, result)
-
+        
     except Exception as e:
         error_msg = f"❌ 处理出错：{str(e)}"
         print(error_msg, flush=True)
