@@ -193,13 +193,6 @@ def generate_weekly_report(
 ) -> List[str]:
     """
     生成战报
-    
-    参数:
-        school_keyword: 学校关键词
-        week_number: 周数（1-4），如果指定则自动计算对应的轮次
-        round_numbers: 指定轮次列表，如 [1, 2, 3, 4]
-        last_week_data: 上周数据（用于计算增量），如果不传则自动获取
-        title: 自定义标题，如果不指定则自动生成
     """
     original_keyword = school_keyword
     
@@ -229,7 +222,6 @@ def generate_weekly_report(
     last_final_rank = 0
     if last_week_data is None:
         if is_single_round:
-            # 单轮：获取前一轮的数据
             prev_round = target_rounds[0] - 1
             if prev_round >= 1:
                 try:
@@ -275,6 +267,19 @@ def generate_weekly_report(
     else:
         rank_desc = "持平"
     
+    # ===== 晋级线 =====
+    promotion_line = arena_data.get("promotion_line", 0.0)
+    if promotion_line > 0:
+        diff = total_score - promotion_line
+        if diff > 0:
+            promotion_text = f"•  超过晋级线：{diff:.1f} 分"
+        elif diff == 0:
+            promotion_text = "•  正好在晋级线上"
+        else:
+            promotion_text = f"•  距离晋级线还差：{-diff:.1f} 分"
+    else:
+        promotion_text = "•  晋级线：暂无数据"
+    
     # 生成标题
     if title:
         week_title = title
@@ -307,7 +312,8 @@ def generate_weekly_report(
 •  {prev_label}累计分数：{last_total:.1f} 分
 •  {round_label}新增分数：{delta_total:+.1f} 分
 •  当前累计分数：{total_score:.1f} 分
-•  当前排名：第 {final_rank} 名（{rank_desc}）"""
+•  当前排名：第 {final_rank} 名（{rank_desc}）
+{promotion_text}"""
 
     # ===== 消息2：东风赛道 =====
     east_total = east.get('total_score', 0.0)
