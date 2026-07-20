@@ -14,16 +14,15 @@ CONTEST_ID = "6a5265acf78ec7d0138baa2d"
 EAST_TRACK_ID = "6a5265acf78ec7d0138baa2e"
 SOUTH_TRACK_ID = "6a526941f78ec7d0138baa33"
 
-REQUEST_TIMEOUT = 60  # 超时时间改为60秒
-MAX_RETRIES = 3       # 最大重试次数
+REQUEST_TIMEOUT = 60
+MAX_RETRIES = 3
 
 # ============================================================
-# 顺位点（规则书第3.1、3.2节）
+# 顺位点
 # ============================================================
 EAST_RANK_BONUS = {1: 27, 2: 3, 3: -9, 4: -21}
 SOUTH_RANK_BONUS = {1: 45, 2: 5, 3: -15, 4: -35}
 
-# 学校名称修正映射
 SCHOOL_NAME_FIX = {
     "上海第二工业大": "上海第二工业大学",
     "北京航空航天大": "北京航空航天大学",
@@ -36,13 +35,7 @@ SCHOOL_NAME_FIX = {
     "对外经济贸易大": "对外经济贸易大学",
 }
 
-# 每周对应的轮次
-WEEK_ROUNDS = {
-    1: [1, 2],
-    2: [3, 4],
-    3: [5, 6],
-    4: [7, 8],
-}
+WEEK_ROUNDS = {1: [1, 2], 2: [3, 4], 3: [5, 6], 4: [7, 8]}
 
 
 # ============================================================
@@ -50,7 +43,6 @@ WEEK_ROUNDS = {
 # ============================================================
 
 def fetch_with_retry(url: str, max_retries: int = MAX_RETRIES, timeout: int = REQUEST_TIMEOUT) -> requests.Response:
-    """带重试机制的请求函数"""
     for attempt in range(max_retries):
         try:
             resp = requests.get(url, timeout=timeout)
@@ -172,7 +164,8 @@ def parse_rounds_and_scores(data: dict, track_id: str, rank_bonus: Dict[int, int
                         "player_name": player_name,
                         "score": score,
                         "rank": rank,
-                        "single_score": single_score
+                        "single_score": single_score,
+                        "round": round_num  # 🔥 添加轮次信息
                     })
     
     return round_data
@@ -216,16 +209,10 @@ def calculate_team_scores(round_data: Dict[int, Dict[str, dict]]) -> Dict[str, d
 # ============================================================
 
 def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
-    """
-    获取战报数据
-    total_score 始终是从第1轮开始的累计值
-    round_scores 包含每轮的总分
-    """
     print("📊 开始从 Arena 获取数据...")
     if round_filter:
         print(f"📌 过滤轮次: 第 {', '.join(map(str, round_filter))} 轮")
     
-    # 获取从第1轮到当前轮次的所有数据（用于计算累计）
     all_rounds = list(range(1, max(round_filter) + 1)) if round_filter else None
     
     east_data, south_data, participants = fetch_contest_data()
