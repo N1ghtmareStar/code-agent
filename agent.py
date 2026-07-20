@@ -19,13 +19,16 @@ def extract_school_keyword(text: str, default: str = "第二工业") -> str:
     cleaned = re.sub(r'第\d+周', '', cleaned)
     # 移除 "第X、Y轮" 或 "第X-Y轮"
     cleaned = re.sub(r'第[\d、,，\-到]+轮', '', cleaned)
+    # 移除 "第一周"、"第二周" 等中文周数
+    cleaned = re.sub(r'[一二三四五六七八九十]+周', '', cleaned)
+    # 移除 "第一轮"、"第二轮" 等中文轮数
+    cleaned = re.sub(r'[一二三四五六七八九十]+轮', '', cleaned)
     cleaned = cleaned.strip()
     
     patterns = [
         r"生成(.+?)战报",
         r"战报(.+?)学校",
         r"查询(.+?)战报",
-        r"(.+?)战报",
     ]
     
     for pattern in patterns:
@@ -36,15 +39,40 @@ def extract_school_keyword(text: str, default: str = "第二工业") -> str:
                 continue
             if len(keyword) >= 2 and not re.search(r'[^a-zA-Z\u4e00-\u9fa5]', keyword):
                 return keyword
+    
+    # 如果没有匹配到，尝试直接提取学校简称
+    # 匹配 "二工大"、"北大" 等2-4个字符的学校简称
+    school_match = re.search(r'([\u4e00-\u9fa5]{2,4}大?)', cleaned)
+    if school_match:
+        return school_match.group(1)
+    
     return default
 
 
 def extract_week_number(text: str) -> Optional[int]:
-    """从用户输入中提取周数，如 '第1周'、'第2周' """
-    pattern = r'第(\d+)周'
-    match = re.search(pattern, text)
+    """从用户输入中提取周数，如 '第1周'、'第一周'、'第2周' """
+    # 匹配 "第1周"
+    pattern1 = r'第(\d+)周'
+    match = re.search(pattern1, text)
     if match:
         return int(match.group(1))
+    
+    # 匹配 "第一周"、"第二周" 等中文数字
+    chinese_num_map = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+    pattern2 = r'([一二三四五六七八九十]+)周'
+    match = re.search(pattern2, text)
+    if match:
+        chinese = match.group(1)
+        if chinese in chinese_num_map:
+            return chinese_num_map[chinese]
+        # 处理 "十" 的组合
+        if chinese == "十":
+            return 10
+        if chinese == "十一":
+            return 11
+        if chinese == "十二":
+            return 12
+    
     return None
 
 
