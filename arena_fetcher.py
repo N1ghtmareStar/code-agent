@@ -298,14 +298,29 @@ def fetch_weekly_report_data(round_filter: Optional[List[int]] = None) -> dict:
             "total_score": round(total, 1)
         }
     
+    # 生成排名
     sorted_teams = sorted(
         result["teams"].items(),
         key=lambda x: x[1]["total_score"],
         reverse=True
     )
+    
+    rankings = []
     for rank, (pid, data) in enumerate(sorted_teams, 1):
         data["final_rank"] = rank
-        result["rankings"].append((pid, data["total_score"]))
+        rankings.append((pid, data["total_score"]))
+    
+    result["rankings"] = rankings
+    
+    # 🔥 获取晋级线（第32名分数）
+    promotion_line = 0.0
+    if len(rankings) >= 32:
+        promotion_line = rankings[31][1]  # 第32名
+        debug_print(f"🔍 晋级线（第32名）：{promotion_line:.1f} 分")
+    else:
+        debug_print(f"⚠️ 排名数据不足32条，当前只有 {len(rankings)} 条")
+    
+    result["promotion_line"] = promotion_line
     
     debug_print(f"✅ 成功获取 {len(result['teams'])} 个队伍的数据")
     return result
@@ -326,6 +341,9 @@ if __name__ == "__main__":
         data = fetch_weekly_report_data([3, 4])
         elapsed = time.time() - start
         print(f"⏱️ 耗时: {elapsed:.2f} 秒")
+        
+        print(f"📊 晋级线（第32名）：{data.get('promotion_line', 0):.1f} 分")
+        print(f"🏫 参赛队伍数：{len(data['teams'])}")
         
         for pid, team in data['teams'].items():
             if "第二工业" in team['name']:
