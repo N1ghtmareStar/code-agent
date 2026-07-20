@@ -10,12 +10,12 @@ import re
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from agent import run_agent
-from match_report import generate_weekly_report  # 新增导入
+from match_report import generate_weekly_report
 
 # ========== 配置 ==========
 HOST = "0.0.0.0"
 PORT = 8765
-BOT_QQ = 1257934564  # 你的机器人 QQ 号
+BOT_QQ = 1257934564
 
 print(f"🤖 QQ Bot WebSocket 服务启动中...", flush=True)
 print(f"📡 监听地址：ws://{HOST}:{PORT}", flush=True)
@@ -76,27 +76,75 @@ def generate_at_text(user_input: str) -> str:
     return " 您要的结果已生成，请查看下方聊天记录 👇"
 
 
+# ========== 发送消息的辅助函数 ==========
+async def send_group_message(websocket, group_id: int, content):
+    """发送群消息"""
+    payload = {
+        "action": "send_group_msg",
+        "params": {
+            "group_id": group_id,
+            "message": content
+        }
+    }
+    await websocket.send(json.dumps(payload))
+
+
+async def send_forward_message(websocket, group_id: int, user_id: int, user_input: str, messages: list):
+    """发送合并转发消息"""
+    # 1. 发送 @ 提醒
+    at_text = generate_at_text(user_input)
+    at_segments = [
+        {"type": "at", "data": {"qq": user_id}},
+        {"type": "text", "data": {"text": at_text}}
+    ]
+    await send_group_message(websocket, group_id, at_segments)
+    await asyncio.sleep(0.5)
+
+    # 2. 构建合并转发节点
+    forward_nodes = []
+    for msg in messages:
+        node = {
+            "type": "node",
+            "data": {
+                "name": "战报机器人",
+                "uin": str(BOT_QQ),
+                "content": msg
+            }
+        }
+        forward_nodes.append(node)
+
+    forward_data = {
+        "action": "send_group_forward_msg",
+        "params": {
+            "group_id": group_id,
+            "messages": forward_nodes
+        }
+    }
+    await websocket.send(json.dumps(forward_data))
+    print(f"✅ 已发送合并转发（共 {len(messages)} 条消息）", flush=True)
+
+
 # ========== 处理单条消息 ==========
-async def handle_message(message_data: dict):
+async def handle_message(message_data: dict, websocket):
     message_type = message_data.get("message_type")
     user_id = message_data.get("user_id")
     group_id = message_data.get("group_id")
 
     if message_type != "group":
-        return None, None, None, None, ""
+        return
 
     if not is_at_bot(message_data):
-        return None, None, None, None, ""
+        return
 
     user_input = extract_text_without_at(message_data)
     if not user_input:
-        return "请告诉我你的需求，比如：给我10个随机数 或 生成战报", message_type, group_id, user_id, user_input
+        await send_group_message(websocket, group_id, "请告诉我你的需求，比如：给我10个随机数 或 生成战报")
+        return
 
     print(f"📩 收到群消息：{user_input}", flush=True)
 
-    # ===== 🔥 新增：战报指令优先处理 =====
+    # ===== 战报指令优先处理 =====
     if re.search(r'战报|生成战报', user_input):
-        # 提取学校名称
         match = re.search(r'(?:战报|生成战报)(?:[\s]+)?(.+?)(?:\s|$)', user_input)
         school = match.group(1) if match else "第二工业"
 
@@ -104,33 +152,38 @@ async def handle_message(message_data: dict):
 
         try:
             # 🔥 先发"正在查询"提示
-            await send_immediate_reply(group_id, user_id, f"⏳ 正在查询 {school} 的战报，请稍候...")
+            await send_group_message(websocket, group_id, f"⏳ 正在查询 {school} 的战报，请稍候...")
 
             # 生成战报
             reports = generate_weekly_report(school_keyword=school)
-            return reports, message_type, group_id, user_id, user_input
+
+            # 发送战报
+            if isinstance(reports, list):
+                await send_forward_message(websocket, group_id, user_id, user_input, reports)
+            else:
+                await send_group_message(websocket, group_id, reports)
+
+            return
         except Exception as e:
             error_msg = f"❌ 生成战报失败：{str(e)}"
             print(error_msg, flush=True)
-            return error_msg, message_type, group_id, user_id, user_input
+            await send_group_message(websocket, group_id, error_msg)
+            return
 
     # ===== 原有 Agent 逻辑 =====
     try:
         result = await asyncio.to_thread(run_agent, user_input, str(user_id))
         result = try_parse_list(result)
-        return result, message_type, group_id, user_id, user_input
+
+        if isinstance(result, list):
+            await send_forward_message(websocket, group_id, user_id, user_input, result)
+        else:
+            await send_group_message(websocket, group_id, result)
+
     except Exception as e:
         error_msg = f"❌ 处理出错：{str(e)}"
         print(error_msg, flush=True)
-        return error_msg, message_type, group_id, user_id, user_input
-
-
-# ========== 🔥 新增：发送即时提示（不等待） ==========
-async def send_immediate_reply(group_id: int, user_id: int, content: str):
-    """发送一条即时提示消息（不等待后续流程）"""
-    # 这里只构造消息，由调用方发送
-    # 实际发送在 websocket_handler 中完成
-    pass
+        await send_group_message(websocket, group_id, error_msg)
 
 
 # ========== WebSocket 服务端 ==========
@@ -149,70 +202,7 @@ async def websocket_handler(websocket):
             if data.get("post_type") == "meta_event":
                 continue
 
-            reply_content, msg_type, group_id, user_id, user_input = await handle_message(data)
-            if reply_content is None:
-                continue
-
-            if isinstance(reply_content, str):
-                messages_to_send = [reply_content]
-            elif isinstance(reply_content, list):
-                messages_to_send = reply_content
-            else:
-                messages_to_send = [str(reply_content)]
-
-            if msg_type == "group" and group_id:
-                # 🔥 检查是否是战报指令，如果是的话已经发过"正在查询"提示了
-                # 这里的 messages_to_send 是战报内容
-                
-                # 1. 发送 @ 提醒
-                at_text = generate_at_text(user_input)
-                at_segments = [
-                    {"type": "at", "data": {"qq": user_id}},
-                    {"type": "text", "data": {"text": at_text}}
-                ]
-                at_reply = {
-                    "action": "send_group_msg",
-                    "params": {
-                        "group_id": group_id,
-                        "message": at_segments
-                    }
-                }
-                await websocket.send(json.dumps(at_reply))
-                await asyncio.sleep(0.5)
-
-                # 2. 构建合并转发节点
-                forward_nodes = []
-                for msg in messages_to_send:
-                    node = {
-                        "type": "node",
-                        "data": {
-                            "name": "战报机器人",
-                            "uin": str(BOT_QQ),
-                            "content": msg
-                        }
-                    }
-                    forward_nodes.append(node)
-
-                forward_data = {
-                    "action": "send_group_forward_msg",
-                    "params": {
-                        "group_id": group_id,
-                        "messages": forward_nodes
-                    }
-                }
-                await websocket.send(json.dumps(forward_data))
-                print(f"✅ 已发送合并转发（共 {len(messages_to_send)} 条消息）", flush=True)
-
-            elif msg_type == "private":
-                reply_data = {
-                    "action": "send_private_msg",
-                    "params": {
-                        "user_id": user_id,
-                        "message": "\n".join(messages_to_send)
-                    }
-                }
-                await websocket.send(json.dumps(reply_data))
-                print(f"✅ 已私聊回复（{user_id}）", flush=True)
+            await handle_message(data, websocket)
 
     except websockets.exceptions.ConnectionClosed:
         print(f"🔌 客户端已断开", flush=True)
