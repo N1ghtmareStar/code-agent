@@ -69,14 +69,12 @@ def clear_user_school(user_id: str) -> str:
 
 
 # ============================================================
-# 1. 工具函数 - 🔥 修复学校提取
+# 1. 工具函数 - 提取参数
 # ============================================================
 
 def extract_school_keyword(text: str) -> Optional[str]:
     """提取学校关键词，没有则返回 None"""
-    # 去掉"生成"和"战报"
     cleaned = re.sub(r'生成|战报', '', text).strip()
-    # 去掉周数轮数相关
     cleaned = re.sub(r'第[\d一二三四五六七八九十]+周', '', cleaned)
     cleaned = re.sub(r'第[\d、,，\-到]+轮', '', cleaned)
     cleaned = re.sub(r'[一二三四五六七八九十]+周', '', cleaned)
@@ -87,12 +85,10 @@ def extract_school_keyword(text: str) -> Optional[str]:
     if not cleaned:
         return None
     
-    # 尝试匹配学校名称：2-4个中文字符
     match = re.search(r'([\u4e00-\u9fa5]{2,4}(?:大学|学院|大)?)', cleaned)
     if match:
         return match.group(1)
     
-    # 如果上面匹配不到，尝试匹配任何2-4个中文字符
     match = re.search(r'([\u4e00-\u9fa5]{2,4})', cleaned)
     if match:
         return match.group(1)
@@ -132,12 +128,12 @@ def extract_round_numbers(text: str) -> Optional[List[int]]:
 
 
 # ============================================================
-# 2. 大模型调用
+# 2. 🔥 大模型调用（增强版）
 # ============================================================
 
 def call_llm(prompt: str) -> str:
     if not VOLC_ACCESS_KEY or not VOLC_ENDPOINT_ID:
-        print("⚠️ 大模型未配置，使用本地规则")
+        print("⚠️ 大模型未配置")
         return None
     
     headers = {
@@ -148,11 +144,11 @@ def call_llm(prompt: str) -> str:
     data = {
         "model": MODEL,
         "messages": [
-            {"role": "system", "content": "你是一个代码生成助手，只输出Python代码，不要输出任何其他内容。"},
+            {"role": "system", "content": "你是一个战报机器人助手，帮助用户生成立直麻将比赛战报。"},
             {"role": "user", "content": prompt}
         ],
-        "max_tokens": 500,
-        "temperature": 0.1
+        "max_tokens": 800,
+        "temperature": 0.3
     }
     
     try:
@@ -165,64 +161,63 @@ def call_llm(prompt: str) -> str:
         return None
 
 
-def generate_code_with_llm(user_input: str, user_id: str = None) -> str:
-    # 1. 从用户输入中提取学校
-    school = extract_school_keyword(user_input)
-    
-    # 2. 如果提取不到，使用绑定的学校
-    if school is None:
-        if user_id:
-            school = get_user_school(user_id, default="第二工业")
-        else:
-            school = "第二工业"
-    
-    week = extract_week_number(user_input)
-    rounds = extract_round_numbers(user_input)
-    
-    # 如果本地规则已经明确匹配到了，直接用
-    if week is not None:
-        return f"""
-print(generate_weekly_report_text(school_keyword="{school}", week_number={week}))
-"""
-    elif rounds is not None:
-        return f"""
-print(generate_weekly_report_text(school_keyword="{school}", round_numbers={rounds}))
-"""
-    
-    # 否则调用大模型
-    print("--- 调用大模型解析指令 ---")
+# ============================================================
+# 3. 🔥 用大模型解析用户指令
+# ============================================================
+
+def parse_with_llm(user_input: str, user_id: str = None) -> dict:
+    """
+    用大模型解析用户指令，返回结构化的参数
+    """
+    # 获取绑定的学校
+    bound_school = get_user_school(user_id, default="第二工业") if user_id else "第二工业"
     
     prompt = f"""
-用户输入：{user_input}
+用户说："{user_input}"
 
-请生成Python代码调用 generate_weekly_report_text 函数。
+请解析用户的意图，返回JSON格式。
 
-规则：
-1. school_keyword: 从输入中提取学校简称（如"二工大"→"二工大"），没有则用"{school}"
-2. week_number: 如果提到"第X周"、"第一周"、"首周"，提取数字；否则为 None
-3. round_numbers: 如果提到"第X轮"或"第X、Y轮"，提取列表；否则为 None
+可能的意图：
+1. "生成战报" - 用户想生成战报
+2. "绑定学校" - 用户想绑定学校
+3. "查看绑定" - 用户想查看绑定的学校
+4. "解绑学校" - 用户想解绑学校
+5. "帮助" - 用户想查看帮助
+6. "闲聊" - 用户只是闲聊
 
-只返回Python代码，不要任何解释。格式如：
-print(generate_weekly_report_text(school_keyword="二工大", week_number=1))
+如果是"生成战报"，请提取：
+- school: 学校名称（从用户输入中提取，如"二工大"、"北大"），如果没提到则用 "{bound_school}"
+- week: 周数（如果有"第X周"），否则 null
+- rounds: 轮次列表（如果有"第X轮"或"第X、Y轮"），否则 null
+
+只返回JSON，不要其他内容。
+格式示例：
+{{"intent": "生成战报", "school": "二工大", "week": null, "rounds": [3, 4]}}
+{{"intent": "绑定学校", "school": "北大"}}
+{{"intent": "查看绑定"}}
+{{"intent": "解绑学校"}}
+{{"intent": "帮助"}}
+{{"intent": "闲聊", "message": "你好啊"}}
 """
     
-    code = call_llm(prompt)
+    response = call_llm(prompt)
     
-    if code is None:
-        print("⚠️ 大模型不可用，使用本地规则兜底")
-        return f"""
-print(generate_weekly_report_text(school_keyword="{school}"))
-"""
+    if response is None:
+        return {"intent": "error", "message": "大模型不可用"}
     
-    code_match = re.search(r'```python\n(.*?)```', code, re.DOTALL)
-    if code_match:
-        return code_match.group(1).strip()
-    
-    return code.strip()
+    # 尝试提取JSON
+    try:
+        json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        if json_match:
+            return json.loads(json_match.group(0))
+        else:
+            return {"intent": "error", "message": "无法解析大模型响应"}
+    except json.JSONDecodeError:
+        return {"intent": "error", "message": "大模型返回格式错误"}
 
 
 # ============================================================
-# 3. 帮助信息
+# 4. 帮助信息
 # ============================================================
 
 def get_help_text() -> str:
@@ -261,7 +256,109 @@ def get_help_text() -> str:
 
 
 # ============================================================
-# 4. 核心函数
+# 5. 🔥 核心函数（支持大模型解析）
+# ============================================================
+
+def run_agent(user_input: str, user_id: str = None) -> str:
+    print(f"📩 用户输入：{user_input}")
+    print(f"👤 用户ID：{user_id}")
+    
+    # ---- 1. 先尝试本地快速匹配 ----
+    
+    # 绑定学校
+    if "绑定学校" in user_input:
+        match = re.search(r'绑定学校\s*([\u4e00-\u9fa5]{2,4}大?)', user_input)
+        if match:
+            school = match.group(1)
+            return set_user_school(user_id, school)
+        return "⚠️ 请指定要绑定的学校，例如：绑定学校 二工大"
+    
+    # 查看绑定
+    if "查看绑定" in user_input:
+        school = get_user_school(user_id, default="第二工业")
+        return f"📌 你当前绑定的学校是：{school}"
+    
+    # 解绑学校
+    if "解绑学校" in user_input:
+        return clear_user_school(user_id)
+    
+    # 帮助
+    help_keywords = ["帮助", "help", "怎么用", "使用方法", "指令", "功能"]
+    user_lower = user_input.lower().strip()
+    if user_lower in ["帮助", "help"] or any(kw in user_lower for kw in ["怎么用", "使用方法", "指令", "功能"]):
+        return get_help_text()
+    
+    # 问候
+    if user_lower in ["你好", "hello", "hi", "hey"]:
+        import random
+        greetings = ["你好呀！😊", "嗨！有什么可以帮你的？", "hello！需要生成战报吗？", "我在呢！👋"]
+        return random.choice(greetings)
+    
+    # ---- 2. 战报生成 ----
+    if "生成" in user_input and "战报" in user_input:
+        # 尝试从本地提取参数
+        school = extract_school_keyword(user_input)
+        week = extract_week_number(user_input)
+        rounds = extract_round_numbers(user_input)
+        
+        # 如果有学校名称，直接用本地逻辑（快速路径）
+        if school is not None:
+            if week is not None:
+                code = f'print(generate_weekly_report_text(school_keyword="{school}", week_number={week}))'
+            elif rounds is not None:
+                code = f'print(generate_weekly_report_text(school_keyword="{school}", round_numbers={rounds}))'
+            else:
+                code = f'print(generate_weekly_report_text(school_keyword="{school}"))'
+            
+            print("⚡ 使用本地快速路径")
+            return safe_execute(code)
+        
+        # 没有学校名称，尝试用大模型解析
+        print("🤖 使用大模型解析指令")
+        parsed = parse_with_llm(user_input, user_id)
+        
+        if parsed.get("intent") == "error":
+            return f"❌ 解析失败：{parsed.get('message', '未知错误')}"
+        
+        if parsed.get("intent") == "生成战报":
+            school = parsed.get("school", "第二工业")
+            week = parsed.get("week")
+            rounds = parsed.get("rounds")
+            
+            if week is not None:
+                code = f'print(generate_weekly_report_text(school_keyword="{school}", week_number={week}))'
+            elif rounds is not None:
+                code = f'print(generate_weekly_report_text(school_keyword="{school}", round_numbers={rounds}))'
+            else:
+                code = f'print(generate_weekly_report_text(school_keyword="{school}"))'
+            
+            print(f"📊 大模型解析结果：school={school}, week={week}, rounds={rounds}")
+            return safe_execute(code)
+        else:
+            return f"❌ 未能识别为战报指令，请重新输入"
+    
+    # ---- 3. 🔥 其他指令交给大模型 ----
+    print("🤖 使用大模型处理通用指令")
+    
+    prompt = f"""
+用户说："{user_input}"
+
+请作为战报机器人助手回复用户。用户可能询问比赛信息、学校排名、赛制等。
+如果用户的问题超出你的知识范围，请礼貌地建议用户发送「帮助」查看使用说明。
+
+保持回复简洁、友好。
+"""
+    
+    response = call_llm(prompt)
+    
+    if response is None:
+        return "抱歉，我暂时无法处理这个请求。\n\n发送「帮助」查看使用说明。"
+    
+    return response
+
+
+# ============================================================
+# 6. 安全执行代码
 # ============================================================
 
 def safe_execute(code: str, globals_dict: dict = None) -> str:
@@ -299,60 +396,9 @@ def safe_execute(code: str, globals_dict: dict = None) -> str:
         sys.stdout = old_stdout
 
 
-def run_agent(user_input: str, user_id: str = None) -> str:
-    print(f"用户输入：{user_input}")
-    print(f"用户ID：{user_id}")
-    
-    # ===== 绑定学校 =====
-    if "绑定学校" in user_input:
-        match = re.search(r'绑定学校\s*([\u4e00-\u9fa5]{2,4}大?)', user_input)
-        if match:
-            school = match.group(1)
-            result = set_user_school(user_id, school)
-            return result
-        else:
-            return "⚠️ 请指定要绑定的学校，例如：绑定学校 二工大"
-    
-    # ===== 查看绑定 =====
-    if "查看绑定" in user_input:
-        school = get_user_school(user_id, default="第二工业")
-        return f"📌 你当前绑定的学校是：{school}"
-    
-    # ===== 解绑学校 =====
-    if "解绑学校" in user_input:
-        return clear_user_school(user_id)
-    
-    # ===== 帮助 =====
-    help_keywords = ["帮助", "help", "怎么用", "使用方法", "指令", "功能"]
-    user_lower = user_input.lower().strip()
-    if user_lower in ["帮助", "help"] or any(kw in user_lower for kw in ["怎么用", "使用方法", "指令", "功能"]):
-        return get_help_text()
-    
-    # ===== 问候 =====
-    if user_lower in ["你好", "hello", "hi", "hey"]:
-        import random
-        greetings = ["你好呀！😊", "嗨！有什么可以帮你的？", "hello！需要生成战报吗？", "我在呢！👋"]
-        return random.choice(greetings)
-    
-    # ===== 战报生成 =====
-    if "生成" in user_input and "战报" in user_input:
-        print("--- 正在生成战报 ---")
-        code = generate_code_with_llm(user_input, user_id)
-        print(f"生成的代码：\n{code}")
-        
-        code_match = re.search(r'```python\n(.*?)```', code, re.DOTALL)
-        if code_match:
-            code = code_match.group(1).strip()
-        else:
-            code = code.strip()
-        
-        print("--- 执行代码 ---")
-        result = safe_execute(code)
-        print(f"执行结果：{result}")
-        return result
-    
-    return "抱歉，我暂时无法处理这个请求。\n\n发送「帮助」查看使用说明。"
-
+# ============================================================
+# 测试入口
+# ============================================================
 
 if __name__ == "__main__":
     test_inputs = [
