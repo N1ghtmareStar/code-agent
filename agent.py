@@ -24,6 +24,9 @@ def extract_school_keyword(text: str, default: str = "第二工业") -> str:
         match = re.search(pattern, text)
         if match:
             keyword = match.group(1).strip()
+            # 如果提取到的关键词是"生成"、"战报"等无意义词，跳过
+            if keyword in ["生成", "战报", "的", "个"]:
+                continue
             if len(keyword) >= 2 and not re.search(r'[^a-zA-Z\u4e00-\u9fa5]', keyword):
                 return keyword
     return default
@@ -180,6 +183,7 @@ def run_agent(user_input: str) -> str:
 
 if __name__ == "__main__":
     test_inputs = [
+        "生成战报",
         "生成二工大战报",
         "生成第2周战报",
         "生成第1、2轮战报",
