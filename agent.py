@@ -69,26 +69,31 @@ def clear_user_school(user_id: str) -> str:
 
 
 # ============================================================
-# 1. 工具函数
+# 1. 工具函数 - 🔥 修复学校提取
 # ============================================================
 
 def extract_school_keyword(text: str) -> Optional[str]:
     """提取学校关键词，没有则返回 None"""
-    cleaned = text.replace("生成", "").replace("战报", "").strip()
+    # 去掉"生成"和"战报"
+    cleaned = re.sub(r'生成|战报', '', text).strip()
+    # 去掉周数轮数相关
     cleaned = re.sub(r'第[\d一二三四五六七八九十]+周', '', cleaned)
     cleaned = re.sub(r'第[\d、,，\-到]+轮', '', cleaned)
     cleaned = re.sub(r'[一二三四五六七八九十]+周', '', cleaned)
     cleaned = re.sub(r'[一二三四五六七八九十]+轮', '', cleaned)
-    cleaned = re.sub(r'首周', '', cleaned)
-    cleaned = re.sub(r'次周', '', cleaned)
-    cleaned = re.sub(r'首轮', '', cleaned)
-    cleaned = re.sub(r'次轮', '', cleaned)
+    cleaned = re.sub(r'首周|次周|首轮|次轮', '', cleaned)
     cleaned = cleaned.strip()
     
     if not cleaned:
         return None
     
-    match = re.search(r'([\u4e00-\u9fa5]{2,4}大?)', cleaned)
+    # 尝试匹配学校名称：2-4个中文字符
+    match = re.search(r'([\u4e00-\u9fa5]{2,4}(?:大学|学院|大)?)', cleaned)
+    if match:
+        return match.group(1)
+    
+    # 如果上面匹配不到，尝试匹配任何2-4个中文字符
+    match = re.search(r'([\u4e00-\u9fa5]{2,4})', cleaned)
     if match:
         return match.group(1)
     

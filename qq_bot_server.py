@@ -124,6 +124,37 @@ async def send_forward_message(websocket, group_id: int, user_id: int, user_inpu
     print(f"✅ 已发送合并转发（共 {len(messages)} 条消息）", flush=True)
 
 
+# ========== 🔥 修复：提取学校名称 ==========
+def extract_school_from_input(user_input: str) -> str:
+    """从用户输入中提取学校名称"""
+    # 去掉"生成"和"战报"
+    clean = re.sub(r'生成|战报', '', user_input).strip()
+    
+    if not clean:
+        return "第二工业"
+    
+    # 去掉周数轮数相关
+    clean = re.sub(r'第[\d一二三四五六七八九十]+周', '', clean)
+    clean = re.sub(r'第[\d、,，\-到]+轮', '', clean)
+    clean = re.sub(r'[一二三四五六七八九十]+周', '', clean)
+    clean = re.sub(r'[一二三四五六七八九十]+轮', '', clean)
+    clean = clean.strip()
+    
+    if not clean:
+        return "第二工业"
+    
+    # 取第一个词作为学校名
+    parts = clean.split()
+    school = parts[0] if parts else "第二工业"
+    
+    # 如果提取到的是无效词，使用默认
+    invalid_words = ["请", "我", "你", "他", "这", "那", "什么", "怎么", "的", "了", "吗", "呢", "吧", "啊"]
+    if school in invalid_words:
+        return "第二工业"
+    
+    return school
+
+
 # ========== 处理单条消息 ==========
 async def handle_message(message_data: dict, websocket):
     message_type = message_data.get("message_type")
@@ -143,15 +174,15 @@ async def handle_message(message_data: dict, websocket):
 
     print(f"📩 收到群消息：{user_input}", flush=True)
 
-    # ===== 战报指令优先处理 =====
+    # ===== 🔥 战报指令优先处理（修复学校提取） =====
     if re.search(r'战报|生成战报', user_input):
-        match = re.search(r'(?:战报|生成战报)(?:[\s]+)?(.+?)(?:\s|$)', user_input)
-        school = match.group(1) if match else "第二工业"
-
+        # 使用改进的提取函数
+        school = extract_school_from_input(user_input)
+        print(f"🔍 提取到的学校名: '{school}'", flush=True)
         print(f"📊 生成战报，学校：{school}", flush=True)
 
         try:
-            # 🔥 先发"正在查询"提示
+            # 先发"正在查询"提示
             await send_group_message(websocket, group_id, f"⏳ 正在查询 {school} 的战报，请稍候...")
 
             # 生成战报
