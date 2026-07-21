@@ -1,0 +1,96 @@
+name: Weekly Match Report
+
+on:
+  schedule:
+    - cron: '0 10 * * 0'
+  workflow_dispatch:
+
+jobs:
+  generate_report:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Call Wasmer Agent to generate report
+        id: fetch
+        run: |
+          RESPONSE=$(curl -s -w "%{http_code}" -X POST https://code-agent.wasmer.app/webhook \
+            -H "Content-Type: application/json" \
+            -d '{"post_type":"message","message":"生成二工大战报"}')
+          
+          HTTP_CODE="${RESPONSE: -3}"
+          BODY="${RESPONSE%???}"
+          
+          echo "HTTP Status: $HTTP_CODE"
+          
+          if echo "$BODY" | jq -e . >/dev/null 2>&1; then
+            REPORT_CONTENT=$(echo "$BODY" | jq -r '.content // .')
+          else
+            REPORT_CONTENT="$BODY"
+          fi
+          
+          echo "$REPORT_CONTENT" > report.txt
+          
+          if [ "$HTTP_CODE" -ne 200 ]; then
+            echo "Error: HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+      - name: Send email via Python
+        env:
+          BOT_MAIL_USERNAME: ${{ secrets.BOT_MAIL_USERNAME }}
+          BOT_MAIL_PASSWORD: ${{ secrets.BOT_MAIL_PASSWORD }}
+          MAIL_RECIPIENT: ${{ secrets.MAIL_RECIPIENT }}
+        run: |
+          python3 << 'EOF'
+          import smtplib
+          import ssl
+          from email.mime.text import MIMEText
+          from email.header import Header
+          import os
+          from datetime import datetime
+          
+          # 读取报告
+          with open('report.txt', 'r', encoding='utf-8') as f:
+              report_content = f.read()
+          
+          # 邮件配置
+          sender = os.environ['BOT_MAIL_USERNAME']
+          password = os.environ['BOT_MAIL_PASSWORD']
+          receiver = os.environ['MAIL_RECIPIENT']
+          
+          # 构建邮件内容
+          date_str = datetime.now().strftime('%Y年%m月%d日 %H:%M:%S')
+          subject = f"📊 上海第二工业大学 - 周战报 {datetime.now().strftime('%Y年%m月%d日')}"
+          
+          body = f"""
+          📊 上海第二工业大学 - 周战报
+          
+          生成时间：{date_str}
+          
+          ----------------------------------------
+          
+          {report_content}
+          
+          ----------------------------------------
+          
+          📎 在线查看：https://arena.pesiu.org/
+          🤖 机器人：@机器人 生成最新战报
+          """
+          
+          # 创建邮件
+          msg = MIMEText(body, 'plain', 'utf-8')
+          msg['Subject'] = Header(subject, 'utf-8')
+          msg['From'] = sender
+          msg['To'] = receiver
+          
+          # 发送邮件 (QQ 邮箱使用 SSL)
+          try:
+              context = ssl.create_default_context()
+              with smtplib.SMTP_SSL("smtp.qq.com", 465, context=context) as server:
+                  server.login(sender, password)
+                  server.sendmail(sender, [receiver], msg.as_string())
+              print("✅ 邮件发送成功！")
+          except Exception as e:
+              print(f"❌ 邮件发送失败：{e}")
+              exit(1)
+          EOF
