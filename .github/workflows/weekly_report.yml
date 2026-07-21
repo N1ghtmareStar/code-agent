@@ -2,6 +2,7 @@ name: Weekly Match Report
 
 on:
   schedule:
+    # 北京时间每周日 18:00 (UTC 10:00)
     - cron: '0 10 * * 0'
   workflow_dispatch:
 
@@ -23,7 +24,7 @@ jobs:
           echo "HTTP Status: $HTTP_CODE"
           
           if echo "$BODY" | jq -e . >/dev/null 2>&1; then
-            REPORT_CONTENT=$(echo "$BODY" | jq -r '.content // .')
+            REPORT_CONTENT=$(echo "$BODY" | jq -r 'if type == "array" then .[] else .content // . end')
           else
             REPORT_CONTENT="$BODY"
           fi
@@ -49,16 +50,13 @@ jobs:
           import os
           from datetime import datetime
           
-          # 读取报告
           with open('report.txt', 'r', encoding='utf-8') as f:
               report_content = f.read()
           
-          # 邮件配置
           sender = os.environ['BOT_MAIL_USERNAME']
           password = os.environ['BOT_MAIL_PASSWORD']
           receiver = os.environ['MAIL_RECIPIENT']
           
-          # 构建邮件内容
           date_str = datetime.now().strftime('%Y年%m月%d日 %H:%M:%S')
           subject = f"📊 上海第二工业大学 - 周战报 {datetime.now().strftime('%Y年%m月%d日')}"
           
@@ -77,13 +75,11 @@ jobs:
           🤖 机器人：@机器人 生成最新战报
           """
           
-          # 创建邮件
           msg = MIMEText(body, 'plain', 'utf-8')
           msg['Subject'] = Header(subject, 'utf-8')
           msg['From'] = sender
           msg['To'] = receiver
           
-          # 发送邮件 (QQ 邮箱使用 SSL)
           try:
               context = ssl.create_default_context()
               with smtplib.SMTP_SSL("smtp.qq.com", 465, context=context) as server:
