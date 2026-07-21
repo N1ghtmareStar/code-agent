@@ -22,9 +22,13 @@ jobs:
           BODY="${RESPONSE%???}"
           
           echo "HTTP Status: $HTTP_CODE"
+          echo "Raw Response: $BODY"
           
           if echo "$BODY" | jq -e . >/dev/null 2>&1; then
-            REPORT_CONTENT=$(echo "$BODY" | jq -r 'if type == "array" then .[] else .content // . end')
+            # 提取 data.text
+            REPORT_CONTENT=$(echo "$BODY" | jq -r '.data.text // .')
+            # 处理转义字符
+            REPORT_CONTENT=$(echo "$REPORT_CONTENT" | sed 's/\\n/\n/g' | sed 's/\\"/"/g')
           else
             REPORT_CONTENT="$BODY"
           fi
