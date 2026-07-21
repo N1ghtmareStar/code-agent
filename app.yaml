@@ -1,30 +1,26 @@
 name: code-agent
-app_id: da_KwGIWtMUg8pB
+app_id: da_RxJIdtAUEbXe
+kind: wasmer.io/App.v0
+name: code-agent
 owner: n1ghtmarestar
 package: sha256:43d1cb322e25e1e9ff1f52b325279f7fedb483441c4b6e7f19b594616c81ad77
-kind: wasmer.io/App.v0
 annotations:
   shipitcli.com/config:
     commands: {}
     cross_platform: wasix_wasm32
     extra_dependencies:
     - uvicorn
-    framework: flask
+    framework: fastapi
     install_requires_all_files: false
     main_file: app.py
     port: 8080
     precompile_python: true
     python_extra_index_url: https://pythonindex.wasix.org/simple
-    python_version: '3.13'
-    server: gunicorn
+    python_version: '3.12'          # 🔥 改为 3.12
+    server: uvicorn                 # 🔥 改为 uvicorn
     uses_ffmpeg: false
     uses_pandoc: false
     uv_version: 0.8.15
     wsgi_application: app:app
   shipitcli.com/provider: python
   shipitcli.com/version: 0.21.6
-app_id: da_RxJIdtAUEbXe
-kind: wasmer.io/App.v0
-name: code-agent
-owner: n1ghtmarestar
-package: sha256:43d1cb322e25e1e9ff1f52b325279f7fedb483441c4b6e7f19b594616c81ad77
