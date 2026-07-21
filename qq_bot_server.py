@@ -72,7 +72,7 @@ def generate_at_text(user_input: str, result_type: str = "结果") -> str:
     return f" 您要的{result_type}已生成，请查看下方聊天记录 👇"
 
 
-# ========== 🔥 统一发送消息（全部走合并转发） ==========
+# ========== 统一发送消息（全部走合并转发） ==========
 async def send_group_message(websocket, group_id: int, content):
     """发送群消息（单条）"""
     payload = {
@@ -87,7 +87,7 @@ async def send_group_message(websocket, group_id: int, content):
 
 async def send_forward_message(websocket, group_id: int, user_id: int, user_input: str, messages, result_type: str = "结果"):
     """
-    🔥 统一发送消息，自动判断类型并走合并转发
+    统一发送消息，自动判断类型并走合并转发
     
     Args:
         messages: 可以是 str 或 list
@@ -141,7 +141,7 @@ async def send_forward_message(websocket, group_id: int, user_id: int, user_inpu
     print(f"✅ 已发送合并转发（共 {len(messages_list)} 条消息）", flush=True)
 
 
-# ========== 🔥 改进的学校提取（修复"最新"误识别） ==========
+# ========== 改进的学校提取 ==========
 def extract_school_from_input(user_input: str) -> str:
     """从用户输入中提取学校名称（支持别名）"""
     # 先检查别名映射
@@ -149,7 +149,7 @@ def extract_school_from_input(user_input: str) -> str:
         if alias in user_input or full_name in user_input:
             return full_name
     
-    # 🔥 移除战报相关关键词，避免误匹配（增加"最新"等）
+    # 移除战报相关关键词，避免误匹配
     clean_input = re.sub(r'生成|战报|战绩|排名|查询|看看|显示|多少|现在|当前|最新|最近|本周|本轮|上轮|上周', '', user_input)
     clean_input = re.sub(r'第[\d一二三四五六七八九十]+周', '', clean_input)
     clean_input = re.sub(r'第[\d、,，\-到]+轮', '', clean_input)
@@ -232,7 +232,7 @@ async def handle_message(message_data: dict, websocket):
 
     print(f"📩 收到群消息：{user_input}", flush=True)
 
-    # ===== 🔥 战报指令检测 =====
+    # ===== 战报指令检测 =====
     if is_report_intent(user_input):
         # 尝试从输入中提取学校名
         school = extract_school_from_input(user_input)

@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# 🔥 导入 resolve_school_alias 和 get_display_name
+# 导入 resolve_school_alias 和 get_display_name
 from match_report import generate_weekly_report_text, SCHOOL_ALIAS, clear_cache, resolve_school_alias, get_display_name
 
 # ============================================================
@@ -54,7 +54,7 @@ def get_user_school(user_id: str, default: str = None) -> str:
 
 
 def set_user_school(user_id: str, school: str) -> str:
-    """🔥 绑定学校，返回显示名称"""
+    """绑定学校，返回显示名称"""
     # 解析学校用于匹配
     match_name = resolve_school_alias(school)
     # 获取显示名称
@@ -76,13 +76,13 @@ def clear_user_school(user_id: str) -> str:
 
 
 # ============================================================
-# 1. 🔥 改进的工具函数 - 提取参数（支持更多别名）
+# 1. 改进的工具函数 - 提取参数（支持更多别名）
 # ============================================================
 
 def extract_school_keyword(text: str) -> Optional[str]:
     """提取学校关键词，支持别名映射"""
     # 先移除战报相关关键词，避免误匹配
-    cleaned = re.sub(r'生成|战报|战绩|排名|查询|看看|显示|多少|现在|当前', '', text)
+    cleaned = re.sub(r'生成|战报|战绩|排名|查询|看看|显示|多少|现在|当前|最新|最近|本周|本轮|上轮|上周', '', text)
     cleaned = re.sub(r'第[\d一二三四五六七八九十]+周', '', cleaned)
     cleaned = re.sub(r'第[\d、,，\-到]+轮', '', cleaned)
     cleaned = re.sub(r'[一二三四五六七八九十]+周', '', cleaned)
@@ -102,7 +102,7 @@ def extract_school_keyword(text: str) -> Optional[str]:
     match = re.search(r'([\u4e00-\u9fa5]{2,4}(?:大学|学院|大)?)', cleaned)
     if match:
         school = match.group(1)
-        invalid_words = ["请", "我", "你", "他", "这", "那", "什么", "怎么", "的", "了", "吗", "呢", "吧", "啊", "如何", "联合杯"]
+        invalid_words = ["请", "我", "你", "他", "这", "那", "什么", "怎么", "的", "了", "吗", "呢", "吧", "啊", "如何", "联合杯", "最新", "最近", "本周", "本轮", "上轮", "上周", "首周", "次周", "首轮", "次轮"]
         if school not in invalid_words:
             return school
     
@@ -110,7 +110,7 @@ def extract_school_keyword(text: str) -> Optional[str]:
     match = re.search(r'([\u4e00-\u9fa5]{2,4})', cleaned)
     if match:
         school = match.group(1)
-        invalid_words = ["请", "我", "你", "他", "这", "那", "什么", "怎么", "的", "了", "吗", "呢", "吧", "啊", "如何", "联合杯"]
+        invalid_words = ["请", "我", "你", "他", "这", "那", "什么", "怎么", "的", "了", "吗", "呢", "吧", "啊", "如何", "联合杯", "最新", "最近", "本周", "本轮", "上轮", "上周", "首周", "次周", "首轮", "次轮"]
         if school not in invalid_words:
             return school
     
@@ -168,9 +168,10 @@ def call_llm(prompt: str) -> str:
             {"role": "system", "content": """你是一个战报机器人助手，帮助用户生成立直麻将比赛战报。
 
 学校别名参考（当用户使用简称时，请映射到全称）：
-- 二工大/二工/上二工大 → 上海第二工业大
+- 二工大/二工/上二工大 → 上海第二工业大学
 - 交大/上交/上交大 → 上海交通大学
-- 华师/华师大 → 华东师范大学
+- 华师/华师大/华东师大 → 华东师范大学
+- 华南师大 → 华南师范大学
 - 复旦 → 复旦大学
 - 同济 → 同济大学
 - 上外 → 上海外国语大学
@@ -179,14 +180,6 @@ def call_llm(prompt: str) -> str:
 - 海事 → 上海海事大学
 - 海洋 → 上海海洋大学
 - 上财 → 上海财经大学
-- 上戏 → 上海戏剧学院
-- 上音 → 上海音乐学院
-- 体院 → 上海体育学院
-- 上政 → 上海政法学院
-- 上应 → 上海应用技术大学
-- 上科大/上海科技 → 上海科技大学
-- 国科大/中科院 → 中国科学院大学
-- 社科大 → 中国社会科学院大学
 
 其他高校别名也支持，请根据常见简称自动匹配。
 """},
@@ -207,7 +200,7 @@ def call_llm(prompt: str) -> str:
 
 
 # ============================================================
-# 3. 🔥 改进的大模型解析
+# 3. 改进的大模型解析
 # ============================================================
 
 def parse_with_llm(user_input: str, user_id: str = None) -> dict:
@@ -270,7 +263,7 @@ def parse_with_llm(user_input: str, user_id: str = None) -> dict:
 
 
 # ============================================================
-# 4. 🔥 增强的帮助信息
+# 4. 增强的帮助信息
 # ============================================================
 
 def get_help_text() -> str:
@@ -284,7 +277,8 @@ def get_help_text() -> str:
 • 生成北大战报
 • 生成上大战报
 • 生成交大战报
-• 生成华师战报
+• 生成华师战报  → 华东师范大学
+• 生成华南师大战报 → 华南师范大学
 
 **绑定学校（永久）：**
 • 绑定学校 二工大
@@ -298,7 +292,7 @@ def get_help_text() -> str:
 • 生成第3、4轮战报
 • 生成第1-4轮战报
 
-**缓存管理（管理员）：**
+**缓存管理：**
 • 清除缓存  ← 清除所有缓存
 • 清除缓存 二工大  ← 清除指定学校缓存
 
@@ -318,7 +312,7 @@ def get_help_text() -> str:
 
 
 # ============================================================
-# 5. 🔥 学校列表
+# 5. 学校列表
 # ============================================================
 
 def get_school_list() -> str:
@@ -340,7 +334,7 @@ def get_school_list() -> str:
 
 
 # ============================================================
-# 6. 🔥 安全执行代码（返回列表，支持合并转发）
+# 6. 安全执行代码（返回列表，支持合并转发）
 # ============================================================
 
 def safe_execute(code: str, globals_dict: dict = None):
@@ -370,7 +364,7 @@ def safe_execute(code: str, globals_dict: dict = None):
     try:
         exec(code, safe_globals)
         
-        # 🔥 关键：先获取 result 变量
+        # 关键：先获取 result 变量
         result = safe_globals.get('result', None)
         
         # 如果有打印输出，也捕获
@@ -397,7 +391,7 @@ def safe_execute(code: str, globals_dict: dict = None):
 
 
 # ============================================================
-# 7. 🔥 生成代码（支持更多参数）
+# 7. 生成代码（支持更多参数）
 # ============================================================
 
 def generate_code_with_llm(user_input: str, user_id: str = None) -> str:
@@ -438,7 +432,7 @@ result = generate_weekly_report_text(school_keyword="{school}", round_numbers={r
 2. week_number: 如果提到"第X周"、"第一周"、"首周"，提取数字；否则为 None
 3. round_numbers: 如果提到"第X轮"或"第X、Y轮"，提取列表；否则为 None
 
-常用别名：二工大→上海第二工业大，交大→上海交通大学，华师→华东师范大学
+常用别名：二工大→上海第二工业大学，交大→上海交通大学，华师→华东师范大学
 
 只返回Python代码，不要任何解释。格式如：
 result = generate_weekly_report_text(school_keyword="二工大", week_number=1)
@@ -460,7 +454,7 @@ result = generate_weekly_report_text(school_keyword="{school}")
 
 
 # ============================================================
-# 8. 🔥 核心函数（增强版）
+# 8. 核心函数（增强版）
 # ============================================================
 
 def run_agent(user_input: str, user_id: str = None):
@@ -471,7 +465,7 @@ def run_agent(user_input: str, user_id: str = None):
     
     # ---- 1. 本地快速匹配 ----
     
-    # 🔥 清除缓存
+    # 清除缓存
     if "清除缓存" in user_input_clean or "清缓存" in user_input_clean:
         match = re.search(r'清除缓存\s*([\u4e00-\u9fa5]{2,}?)', user_input_clean)
         if match:
@@ -480,7 +474,7 @@ def run_agent(user_input: str, user_id: str = None):
                 return clear_cache(school)
         return clear_cache()
     
-    # 🔥 学校列表
+    # 学校列表
     if "学校列表" in user_input_clean or "参赛学校" in user_input_clean:
         return get_school_list()
     
@@ -489,7 +483,6 @@ def run_agent(user_input: str, user_id: str = None):
         match = re.search(r'绑定学校\s*([\u4e00-\u9fa5]{2,}?)', user_input_clean)
         if match:
             school = match.group(1).strip()
-            # 🔥 使用 set_user_school（已内置别名解析和显示名称）
             return set_user_school(user_id, school)
         return "⚠️ 请指定要绑定的学校，例如：绑定学校 二工大"
     
