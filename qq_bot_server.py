@@ -141,7 +141,7 @@ async def send_forward_message(websocket, group_id: int, user_id: int, user_inpu
     print(f"✅ 已发送合并转发（共 {len(messages_list)} 条消息）", flush=True)
 
 
-# ========== 🔥 改进的学校提取 ==========
+# ========== 🔥 改进的学校提取（修复"最新"误识别） ==========
 def extract_school_from_input(user_input: str) -> str:
     """从用户输入中提取学校名称（支持别名）"""
     # 先检查别名映射
@@ -149,8 +149,8 @@ def extract_school_from_input(user_input: str) -> str:
         if alias in user_input or full_name in user_input:
             return full_name
     
-    # 移除战报相关关键词，避免误匹配
-    clean_input = re.sub(r'生成|战报|战绩|排名|查询|看看|显示|多少|现在|当前', '', user_input)
+    # 🔥 移除战报相关关键词，避免误匹配（增加"最新"等）
+    clean_input = re.sub(r'生成|战报|战绩|排名|查询|看看|显示|多少|现在|当前|最新|最近|本周|本轮|上轮|上周', '', user_input)
     clean_input = re.sub(r'第[\d一二三四五六七八九十]+周', '', clean_input)
     clean_input = re.sub(r'第[\d、,，\-到]+轮', '', clean_input)
     clean_input = clean_input.strip()
@@ -162,7 +162,7 @@ def extract_school_from_input(user_input: str) -> str:
     school_match = re.search(r'([\u4e00-\u9fa5]{2,4}(?:大学|学院|大)?)', clean_input)
     if school_match:
         school = school_match.group(1)
-        invalid_words = ["请", "我", "你", "他", "这", "那", "什么", "怎么", "的", "了", "吗", "呢", "吧", "啊", "如何", "联合杯"]
+        invalid_words = ["请", "我", "你", "他", "这", "那", "什么", "怎么", "的", "了", "吗", "呢", "吧", "啊", "如何", "联合杯", "最新", "最近", "本周", "本轮", "上轮", "上周", "首周", "次周", "首轮", "次轮"]
         if school not in invalid_words:
             return school
     
@@ -170,7 +170,7 @@ def extract_school_from_input(user_input: str) -> str:
     school_match = re.search(r'([\u4e00-\u9fa5]{2,4})', clean_input)
     if school_match:
         school = school_match.group(1)
-        invalid_words = ["请", "我", "你", "他", "这", "那", "什么", "怎么", "的", "了", "吗", "呢", "吧", "啊", "如何", "联合杯"]
+        invalid_words = ["请", "我", "你", "他", "这", "那", "什么", "怎么", "的", "了", "吗", "呢", "吧", "啊", "如何", "联合杯", "最新", "最近", "本周", "本轮", "上轮", "上周", "首周", "次周", "首轮", "次轮"]
         if school not in invalid_words:
             return school
     
@@ -257,7 +257,6 @@ async def handle_message(message_data: dict, websocket):
             
             if bound_school is not None:
                 # ===== 有绑定学校 → 使用绑定学校查询 =====
-                # 获取显示名称用于日志
                 display_name = get_display_name(bound_school)
                 print(f"🔗 使用绑定学校：{display_name}（用户 {user_id}）", flush=True)
                 
