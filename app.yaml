@@ -16,11 +16,14 @@ annotations:
     port: 8080
     precompile_python: true
     python_extra_index_url: https://pythonindex.wasix.org/simple
-    python_version: '3.12'          # 🔥 改为 3.12
-    server: uvicorn                 # 🔥 改为 uvicorn
+    python_version: '3.12'
+    server: uvicorn
     uses_ffmpeg: false
     uses_pandoc: false
     uv_version: 0.8.15
     wsgi_application: app:app
+    # 🔥 添加以下配置
+    docker_mirror: https://docker.mirrors.ustc.edu.cn
+    apt_mirror: http://mirrors.aliyun.com/debian
   shipitcli.com/provider: python
   shipitcli.com/version: 0.21.6
