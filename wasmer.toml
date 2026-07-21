@@ -2,7 +2,7 @@
 entrypoint = "start"
 
 [dependencies]
-"python/python" = "=3.13.5"
+"python/python" = "=3.12.8"
 "wasmer/bash" = "=1.0.25"
 
 [fs]
@@ -16,9 +16,9 @@ runner = "wasi"
 
 [command.annotations.wasi]
 cwd = "/app"
-main-args = ["-m", "gunicorn", "--bind", "0.0.0.0:8080", "app:app"]
+main-args = ["-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]
 env = [
     "PYTHONEXECUTABLE=/bin/python",
-    "PYTHONPATH=/app:/opt/venv/lib/python3.13/site-packages",
+    "PYTHONPATH=/app:/opt/venv/lib/python3.12/site-packages",
     "HOME=/app",
 ]
