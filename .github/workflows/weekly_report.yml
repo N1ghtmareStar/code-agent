@@ -28,7 +28,6 @@ jobs:
             REPORT_CONTENT="$BODY"
           fi
           
-          # 提取周数（从战报内容中提取"第X周"）
           WEEK_NUM=$(echo "$REPORT_CONTENT" | grep -oP '第\d+周' | head -1 | grep -oP '\d+' || echo "最新")
           
           echo "$REPORT_CONTENT" > report.txt
@@ -62,14 +61,10 @@ jobs:
           receiver = os.environ['MAIL_RECIPIENT']
           week_num = os.environ.get('WEEK_NUM', '最新')
           
-          # 北京时间 (UTC+8)
           beijing_time = datetime.utcnow() + timedelta(hours=8)
           date_str = beijing_time.strftime('%Y年%m月%d日 %H:%M:%S')
           
-          # 邮件标题
           subject = f"📊 上海第二工业大学 - 第{week_num}周战报 {beijing_time.strftime('%Y年%m月%d日')}"
-          
-          # 邮件正文标题
           body_title = f"📊 上海第二工业大学 - 第{week_num}周战报"
           
           body = f"""
@@ -84,7 +79,7 @@ jobs:
           ----------------------------------------
           
           📎 在线查看：https://arena.pesiu.org/
-          🤖 机器人：qq群发送"@机器人 生成战报"，获取最新战报
+          🤖 机器人：qq群发送"@aaa疯狂窝瓜 生成战报"，获取最新战报
           """
           
           msg = MIMEText(body, 'plain', 'utf-8')
