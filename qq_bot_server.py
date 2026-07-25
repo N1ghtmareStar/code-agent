@@ -10,7 +10,7 @@ from typing import List
 # 添加当前目录到 Python 路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from agent import run_agent, get_user_school
+from agent import run_agent, get_user_school, extract_round_numbers, extract_week_number
 from match_report import generate_weekly_report, SCHOOL_ALIAS, get_display_name
 
 # ========== 配置 ==========
@@ -241,8 +241,20 @@ async def handle_message(message_data: dict, websocket):
             # ===== 有学校名 → 本地规则路径（快速） =====
             print(f"⚡ 本地规则处理，学校：{school}", flush=True)
             
+            # 🔥 提取轮次和周期参数
+            round_numbers = extract_round_numbers(user_input)
+            week_number = extract_week_number(user_input)
+            
             try:
-                reports = generate_weekly_report(school_keyword=school)
+                if round_numbers is not None:
+                    reports = generate_weekly_report(school_keyword=school, round_numbers=round_numbers)
+                    print(f"📌 使用轮次参数: {round_numbers}", flush=True)
+                elif week_number is not None:
+                    reports = generate_weekly_report(school_keyword=school, week_number=week_number)
+                    print(f"📌 使用周数参数: {week_number}", flush=True)
+                else:
+                    reports = generate_weekly_report(school_keyword=school)
+                
                 await send_forward_message(websocket, group_id, user_id, user_input, reports, "战报")
                 return
             except Exception as e:
@@ -260,8 +272,20 @@ async def handle_message(message_data: dict, websocket):
                 display_name = get_display_name(bound_school)
                 print(f"🔗 使用绑定学校：{display_name}（用户 {user_id}）", flush=True)
                 
+                # 🔥 提取轮次和周期参数
+                round_numbers = extract_round_numbers(user_input)
+                week_number = extract_week_number(user_input)
+                
                 try:
-                    reports = generate_weekly_report(school_keyword=bound_school)
+                    if round_numbers is not None:
+                        reports = generate_weekly_report(school_keyword=bound_school, round_numbers=round_numbers)
+                        print(f"📌 使用轮次参数: {round_numbers}", flush=True)
+                    elif week_number is not None:
+                        reports = generate_weekly_report(school_keyword=bound_school, week_number=week_number)
+                        print(f"📌 使用周数参数: {week_number}", flush=True)
+                    else:
+                        reports = generate_weekly_report(school_keyword=bound_school)
+                    
                     await send_forward_message(websocket, group_id, user_id, user_input, reports, "战报")
                     return
                 except Exception as e:
