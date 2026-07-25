@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from match_report import generate_weekly_report_text, SCHOOL_ALIAS, resolve_school_alias, get_display_name
+from match_report import generate_weekly_report_text, SCHOOL_ALIAS, resolve_school_alias, get_display_name, clear_cache
 
 # ============================================================
 # 配置
@@ -236,9 +236,10 @@ def parse_with_llm(user_input: str, user_id: str = None) -> dict:
 2. "绑定学校" - 用户想绑定学校
 3. "查看绑定" - 用户想查看绑定的学校
 4. "解绑学校" - 用户想解绑学校
-5. "学校列表" - 用户想查看所有参赛学校
-6. "帮助" - 用户想查看帮助
-7. "闲聊" - 用户只是闲聊
+5. "清除缓存" - 用户想清除战报缓存
+6. "学校列表" - 用户想查看所有参赛学校
+7. "帮助" - 用户想查看帮助
+8. "闲聊" - 用户只是闲聊
 
 如果是"生成战报"，请提取：
 - school: 学校名称（从用户输入中提取，支持别名），如果没提到则用 "{bound_school}"
@@ -254,6 +255,7 @@ def parse_with_llm(user_input: str, user_id: str = None) -> dict:
 {{"intent": "绑定学校", "school": "北大"}}
 {{"intent": "查看绑定"}}
 {{"intent": "解绑学校"}}
+{{"intent": "清除缓存"}}
 {{"intent": "学校列表"}}
 {{"intent": "帮助"}}
 {{"intent": "闲聊", "message": "你好啊"}}
@@ -288,10 +290,11 @@ def get_help_text() -> str:
 **基本用法：**
 @机器人 生成战报
 
-**📌 默认战报规则：**
+**📌 默认战报规则（自动判断）：**
 发送「生成战报」时，机器人会自动检测最新数据：
 • 最新轮次为**单数**（如第5轮）→ 生成**单轮战报**
 • 最新轮次为**双数**（如第6轮）→ 生成**周战报**（第5、6轮）
+• 示例：第1轮→单轮，第2轮→第1、2轮，第5轮→单轮，第6轮→第5、6轮
 
 **学校指定（临时）：**
 • 生成二工大战报
@@ -312,6 +315,10 @@ def get_help_text() -> str:
 • 生成第3周战报  → 第3周（第5、6轮）
 • 生成第1-4轮战报  → 累计战报
 
+**缓存管理：**
+• 清除缓存  ← 清除所有缓存
+• 清除缓存 二工大  ← 清除指定学校缓存
+
 **其他功能：**
 • 学校列表  ← 查看所有参赛学校
 
@@ -330,8 +337,8 @@ def get_help_text() -> str:
 **示例：**
 @机器人 绑定学校 二工大
 @机器人 生成战报  ← 自动检测最新数据
-@机器人 生成第5轮战报
-@机器人 生成第3、4轮战报
+@机器人 生成第5轮战报  ← 强制单轮
+@机器人 生成第3、4轮战报  ← 强制指定轮次
 
 **📊 离线备用查询：**
 当机器人离线（电脑关机）时，请访问 Arena 自行查询：
@@ -371,6 +378,7 @@ def safe_execute(code: str, globals_dict: dict = None):
     
     safe_globals = {
         "generate_weekly_report_text": generate_weekly_report_text,
+        "clear_cache": clear_cache,
         "datetime": datetime,
         "os": os,
         "json": json,
@@ -471,6 +479,15 @@ def run_agent(user_input: str, user_id: str = None):
     
     # ---- 1. 本地快速匹配 ----
     
+    # 清除缓存
+    if "清除缓存" in user_input_clean or "清缓存" in user_input_clean:
+        match = re.search(r'清除缓存\s*([\u4e00-\u9fa5]{2,}?)', user_input_clean)
+        if match:
+            school = match.group(1).strip()
+            if school:
+                return clear_cache(school)
+        return clear_cache()
+    
     # 学校列表
     if "学校列表" in user_input_clean or "参赛学校" in user_input_clean:
         return get_school_list()
@@ -557,6 +574,7 @@ if __name__ == "__main__":
         "生成第2周战报",
         "解绑学校",
         "学校列表",
+        "清除缓存",
     ]
     
     test_user_id = "1761473633"

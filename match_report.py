@@ -255,7 +255,27 @@ def generate_weekly_report(
     elif week_number is not None:
         target_rounds = get_rounds_for_week(week_number)
     else:
-        target_rounds = get_latest_completed_rounds(2)
+        # 🔥 根据最新轮次动态决定（单双轮判断）
+        try:
+            all_completed = get_latest_completed_rounds(20)  # 获取所有已完成轮次
+            
+            if all_completed:
+                latest_round = max(all_completed)  # 最大轮次
+                
+                if latest_round % 2 == 1:
+                    # 单数轮：只生成最新一轮
+                    target_rounds = [latest_round]
+                    print(f"📌 检测到最新轮次为单数轮({latest_round})，生成单轮战报", flush=True)
+                else:
+                    # 双数轮：生成最新一周（当前轮和前一轮）
+                    target_rounds = [latest_round - 1, latest_round]
+                    print(f"📌 检测到最新轮次为双数轮({latest_round})，生成周战报({latest_round - 1}, {latest_round})", flush=True)
+            else:
+                # 没有数据，使用默认值
+                target_rounds = get_latest_completed_rounds(2)
+        except Exception as e:
+            print(f"⚠️ 获取最新轮次失败: {e}，使用默认值", flush=True)
+            target_rounds = get_latest_completed_rounds(2)
     
     print(f"🔍 [generate_weekly_report] target_rounds={target_rounds}", flush=True)
     
