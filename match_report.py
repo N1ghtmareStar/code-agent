@@ -360,8 +360,9 @@ def generate_weekly_report(
     else:
         rank_desc = "持平"
     
+    # 🔥 晋级线：支持负数
     promotion_line = arena_data.get("promotion_line", 0.0)
-    if promotion_line > 0:
+    if promotion_line != 0:  # 允许负数
         diff = total_score - promotion_line
         if diff > 0:
             promotion_text = f"•  超过晋级线：{diff:.1f} 分"
