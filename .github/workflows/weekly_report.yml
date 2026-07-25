@@ -14,10 +14,10 @@ jobs:
         include:
           - school_alias: "二工大"
             school_name: "上海第二工业大学"
-            recipient: ${{ secrets.MAIL_RECIPIENT }}
+            recipient_secret: "MAIL_RECIPIENT"
           - school_alias: "复旦"
             school_name: "复旦大学"
-            recipient: ${{ secrets.FUDAN_RECIPIENT }}
+            recipient_secret: "FUDAN_RECIPIENT"
     
     steps:
       - name: Call Wasmer Agent to generate report
@@ -52,7 +52,7 @@ jobs:
         env:
           BOT_MAIL_USERNAME: ${{ secrets.BOT_MAIL_USERNAME }}
           BOT_MAIL_PASSWORD: ${{ secrets.BOT_MAIL_PASSWORD }}
-          MAIL_RECIPIENT: ${{ matrix.recipient }}
+          MAIL_RECIPIENT: ${{ secrets[matrix.recipient_secret] }}
           SCHOOL_NAME: ${{ matrix.school_name }}
           SCHOOL_ALIAS: ${{ matrix.school_alias }}
           WEEK_NUM: ${{ env.WEEK_NUM }}
