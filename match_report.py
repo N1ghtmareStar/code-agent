@@ -1,5 +1,6 @@
 import os
 import re
+import time
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
@@ -7,7 +8,6 @@ from arena_fetcher import fetch_weekly_report_data, EAST_RANK_BONUS, SOUTH_RANK_
 
 
 def get_prev_rounds(current_rounds: List[int]) -> List[int]:
-    """获取当前轮次对应的上一周轮次"""
     if not current_rounds:
         return []
     min_round = min(current_rounds)
@@ -18,7 +18,6 @@ def get_prev_rounds(current_rounds: List[int]) -> List[int]:
 
 
 def get_week_from_rounds(rounds: List[int]) -> Optional[int]:
-    """根据轮次判断是第几周"""
     if not rounds:
         return None
     min_round = min(rounds)
@@ -33,8 +32,8 @@ SCHOOL_ALIAS = {
     "北大": "北京大学",
     "上大": "上海大学",
     "北邮": "北京邮电大学",
-    "北航": "北京航空航天大",
-    "北航大": "北京航空航天大",
+    "北航": "北京航空航天大学",
+    "北航大": "北京航空航天大学",
     "川大": "四川大学",
     "中农": "中国农业大学",
     "中农大": "中国农业大学",
@@ -47,8 +46,8 @@ SCHOOL_ALIAS = {
     "复旦": "复旦大学",
     "大工": "大连理工大学",
     "大工大": "大连理工大学",
-    "对外经贸": "对外经济贸易大",
-    "外经贸": "对外经济贸易大",
+    "对外经贸": "对外经济贸易大学",
+    "外经贸": "对外经济贸易大学",
     "上电": "上海电力大学",
     "山财": "山东财经大学",
     "华科": "华中科技大学",
@@ -58,11 +57,11 @@ SCHOOL_ALIAS = {
     "北师": "北京师范大学",
     "广大": "广州大学",
     "西工大": "西北工业大学",
-    "西电": "西安电子科技大",
+    "西电": "西安电子科技大学",
     "华工": "华南理工大学",
     "华南理工": "华南理工大学",
-    "上工程": "上海工程技术大",
-    "工程大": "上海工程技术大",
+    "上工程": "上海工程技术大学",
+    "工程大": "上海工程技术大学",
     "南宁二中": "南宁市第二中学",
     "哈医大": "哈尔滨医科大学",
     "福医大": "福建医科大学",
@@ -76,14 +75,16 @@ SCHOOL_ALIAS = {
     "华农": "华南农业大学",
     "福大": "福州大学",
     "东大": "东北大学",
-    "中南财大": "中南财经政法大",
-    "中南财经": "中南财经政法大",
-    "二工大": "上海第二工业大",
-    "上二工大": "上海第二工业大",
+    "中南财大": "中南财经政法大学",
+    "中南财经": "中南财经政法大学",
+    "二工大": "上海第二工业大学",
+    "二工": "上海第二工业大学",
+    "上二工大": "上海第二工业大学",
     "北交": "北京交通大学",
     "北交大": "北京交通大学",
     "上交": "上海交通大学",
     "上交大": "上海交通大学",
+    "交大": "上海交通大学",
     "华东理工": "华东理工大学",
     "华理": "华东理工大学",
     "北理": "北京理工大学",
@@ -95,8 +96,8 @@ SCHOOL_ALIAS = {
     "建桥学院": "上海建桥学院",
     "汕大": "汕头大学",
     "大外": "大连外国语大学",
-    "西农": "西北农林科技大",
-    "西北农大": "西北农林科技大",
+    "西农": "西北农林科技大学",
+    "西北农大": "西北农林科技大学",
     "中南": "中南大学",
     "东农": "东北农业大学",
     "东北农大": "东北农业大学",
@@ -106,7 +107,7 @@ SCHOOL_ALIAS = {
     "华东师大": "华东师范大学",
     "吉大": "吉林大学",
     "上财": "上海财经大学",
-    "南航": "南京航空航天大",
+    "南航": "南京航空航天大学",
     "上师": "上海师范大学",
     "上师大": "上海师范大学",
     "南科": "南方科技大学",
@@ -116,7 +117,7 @@ SCHOOL_ALIAS = {
     "太理": "太原理工大学",
     "太原理工": "太原理工大学",
     "南大": "南京大学",
-    "北信": "北京信息科技大",
+    "北信": "北京信息科技大学",
     "北信科": "北京信息科技大学",
 }
 
@@ -128,6 +129,13 @@ def resolve_school_alias(keyword: str) -> str:
     if keyword.endswith("大"):
         return keyword[:-1] + "大学"
     return keyword
+
+
+def get_display_name(school_name: str) -> str:
+    """获取显示名称，将'大'结尾转为'大学'"""
+    if school_name.endswith("大") and school_name != "北京大学" and school_name != "上海大学":
+        return school_name[:-1] + "大学"
+    return school_name
 
 
 def find_school_in_arena(data: dict, school_keyword: str) -> Tuple[Optional[str], Optional[dict]]:
@@ -184,6 +192,47 @@ def format_details_from_arena(details: List[dict], rank_bonus: Dict[int, int]) -
     return "\n".join(result_lines)
 
 
+# ============================================================
+# 消息截断
+# ============================================================
+MAX_MSG_LENGTH = 1800
+
+
+def truncate_message(msg: str) -> str:
+    if len(msg) <= MAX_MSG_LENGTH:
+        return msg
+    return msg[:MAX_MSG_LENGTH - 50] + "\n\n... (内容过长已截断)"
+
+
+# ============================================================
+# 缓存管理
+# ============================================================
+_report_cache = {}
+CACHE_TTL = 300  # 5分钟
+
+
+def clear_cache(school_keyword: str = None) -> str:
+    """清除缓存，如果指定学校则只清除该学校的缓存"""
+    global _report_cache
+    if school_keyword is None:
+        _report_cache.clear()
+        return "✅ 已清除所有战报缓存"
+    
+    # 解析学校名
+    resolved = resolve_school_alias(school_keyword)
+    
+    # 清除匹配的缓存（同时匹配原始关键词和解析后的名称）
+    to_delete = []
+    for key in _report_cache.keys():
+        if key.startswith(school_keyword) or key.startswith(resolved):
+            to_delete.append(key)
+    
+    for key in to_delete:
+        del _report_cache[key]
+    
+    return f"✅ 已清除 {school_keyword} 的战报缓存（共 {len(to_delete)} 条）"
+
+
 def generate_weekly_report(
     school_keyword: str = "第二工业",
     week_number: Optional[int] = None,
@@ -192,9 +241,13 @@ def generate_weekly_report(
     title: Optional[str] = None
 ) -> List[str]:
     """
-    生成战报
+    生成战报（带按学校缓存）
     """
+    print(f"🔍 [generate_weekly_report] school={school_keyword}, week={week_number}, rounds={round_numbers}", flush=True)
+    
     original_keyword = school_keyword
+    resolved_school = resolve_school_alias(school_keyword)
+    print(f"🔍 [generate_weekly_report] resolved_school={resolved_school}", flush=True)
     
     # 确定轮次
     if round_numbers is not None:
@@ -204,6 +257,23 @@ def generate_weekly_report(
     else:
         target_rounds = get_latest_completed_rounds(2)
     
+    print(f"🔍 [generate_weekly_report] target_rounds={target_rounds}", flush=True)
+    
+    # 缓存键：使用解析后的学校名 + 轮次
+    cache_key = f"{resolved_school}_{','.join(map(str, target_rounds))}"
+    print(f"🔑 [generate_weekly_report] cache_key={cache_key}", flush=True)
+    
+    # 检查缓存
+    if cache_key in _report_cache:
+        cached_data, timestamp = _report_cache[cache_key]
+        print(f"📦 缓存命中! 时间差: {time.time() - timestamp:.1f}s", flush=True)
+        if time.time() - timestamp < CACHE_TTL:
+            print(f"📦 使用缓存的战报: {resolved_school} (轮次: {target_rounds})", flush=True)
+            return cached_data
+    else:
+        print(f"❌ 缓存未命中", flush=True)
+    
+    # ===== 获取数据 =====
     try:
         arena_data = fetch_weekly_report_data(target_rounds)
     except Exception as e:
@@ -211,11 +281,11 @@ def generate_weekly_report(
     
     school_name, school_data = find_school_in_arena(arena_data, school_keyword)
     if not school_data:
-        return [f"❌ 未找到学校：'{original_keyword}' 未参加第五届联合杯，或学校名称不匹配。"]
+        return [f"❌ 未找到学校：'{original_keyword}' 未参加第五届联合杯，或学校名称不匹配。\n\n💡 提示：发送「学校列表」查看所有参赛学校"]
     
     # ---- 判断模式 ----
     is_single_round = len(target_rounds) == 1
-    is_cumulative = len(target_rounds) > 2  # 多轮累计模式（如1-4轮）
+    is_cumulative = len(target_rounds) > 2
     
     if is_cumulative:
         round_label = "累计"
@@ -224,7 +294,7 @@ def generate_weekly_report(
         round_label = "本轮" if is_single_round else "本周"
         prev_label = "上轮" if is_single_round else "上周"
     
-    # ---- 获取上一轮/周数据（用于排名变化） ----
+    # ---- 获取上一轮/周数据 ----
     last_final_rank = 0
     if last_week_data is None and not is_cumulative:
         if is_single_round:
@@ -255,15 +325,12 @@ def generate_weekly_report(
     total_score = school_data.get("total_score", 0.0)
     final_rank = school_data.get("final_rank", 0)
     
-    # 计算本轮/周轮次总分（从 round_scores 中累加当前轮次）
     east_round_total = sum(score for round_num, score in east.get("round_scores", {}).items() if round_num in target_rounds)
     south_round_total = sum(score for round_num, score in south.get("round_scores", {}).items() if round_num in target_rounds)
     delta_total = east_round_total + south_round_total
     
-    # 上轮/上周累计分数
     last_total = total_score - delta_total
     
-    # 排名变化
     if last_final_rank == 0:
         rank_desc = "持平"
     elif final_rank < last_final_rank:
@@ -273,7 +340,6 @@ def generate_weekly_report(
     else:
         rank_desc = "持平"
     
-    # ===== 晋级线 =====
     promotion_line = arena_data.get("promotion_line", 0.0)
     if promotion_line > 0:
         diff = total_score - promotion_line
@@ -286,7 +352,7 @@ def generate_weekly_report(
     else:
         promotion_text = "•  晋级线：暂无数据"
     
-    # ===== 生成标题 =====
+    # ---- 生成标题 ----
     if title:
         week_title = title
     elif round_numbers is not None:
@@ -304,14 +370,13 @@ def generate_weekly_report(
             round_str = f"第{target_rounds[0]}-{target_rounds[-1]}轮" if len(target_rounds) > 1 else f"第{target_rounds[0]}轮"
             week_title = f"{round_str}战报"
     
-    # 过滤明细，只保留当前轮次
+    # 过滤明细
     east_details = [d for d in east.get("details", []) if d.get("round") in target_rounds]
     south_details = [d for d in south.get("details", []) if d.get("round") in target_rounds]
     
     east_detail = format_details_from_arena(east_details, EAST_RANK_BONUS)
     south_detail = format_details_from_arena(south_details, SOUTH_RANK_BONUS)
     
-    # 从当前轮次明细中统计顺位
     east_rank_1 = sum(1 for d in east_details if d.get("rank") == 1)
     east_rank_2 = sum(1 for d in east_details if d.get("rank") == 2)
     east_rank_3 = sum(1 for d in east_details if d.get("rank") == 3)
@@ -322,9 +387,8 @@ def generate_weekly_report(
     south_rank_3 = sum(1 for d in south_details if d.get("rank") == 3)
     south_rank_4 = sum(1 for d in south_details if d.get("rank") == 4)
     
-    # ===== 消息1：总览 =====
+    # ===== 消息1 =====
     if is_cumulative:
-        # 累计模式：直接显示总累计
         msg1 = f"""📊 第五届联合杯 · {week_title}
 
 🏫 参赛学校：{school_name}
@@ -336,7 +400,6 @@ def generate_weekly_report(
 •  当前排名：第 {final_rank} 名（{rank_desc}）
 {promotion_text}"""
     else:
-        # 普通模式：显示上周/本周
         msg1 = f"""📊 第五届联合杯 · {week_title}
 
 🏫 参赛学校：{school_name}
@@ -350,7 +413,7 @@ def generate_weekly_report(
 •  当前排名：第 {final_rank} 名（{rank_desc}）
 {promotion_text}"""
     
-    # ===== 消息2：东风赛道 =====
+    # ===== 消息2 =====
     east_total = east.get('total_score', 0.0)
     msg2 = f"""🀀 东风赛道：{east_total:.1f} 分（{east_round_total:+.1f}）
 •  顺位：1位{east_rank_1}次 / 2位{east_rank_2}次 / 3位{east_rank_3}次 / 4位{east_rank_4}次
@@ -359,7 +422,7 @@ def generate_weekly_report(
 📌 {round_label}明细（东风）：
 {east_detail}"""
 
-    # ===== 消息3：半庄赛道 =====
+    # ===== 消息3 =====
     south_total = south.get('total_score', 0.0)
     msg3 = f"""🀁 半庄赛道：{south_total:.1f} 分（{south_round_total:+.1f}）
 •  顺位：1位{south_rank_1}次 / 2位{south_rank_2}次 / 3位{south_rank_3}次 / 4位{south_rank_4}次
@@ -368,7 +431,19 @@ def generate_weekly_report(
 📌 {round_label}明细（半庄）：
 {south_detail}"""
 
-    return [msg1, msg2, msg3]
+    messages = [msg1, msg2, msg3]
+    
+    # 截断过长消息
+    messages = [truncate_message(msg) for msg in messages]
+    
+    # ===== 存入缓存 =====
+    _report_cache[cache_key] = (messages, time.time())
+    print(f"💾 已缓存战报: {resolved_school} (轮次: {target_rounds})", flush=True)
+    
+    return messages
+
+
+generate_weekly_report_text = generate_weekly_report
 
 
 # ============================================================
@@ -396,6 +471,3 @@ if __name__ == "__main__":
         print(f"❌ 测试失败：{e}")
         import traceback
         traceback.print_exc()
-
-
-generate_weekly_report_text = generate_weekly_report

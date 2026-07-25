@@ -9,8 +9,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# 导入 resolve_school_alias 和 get_display_name
-from match_report import generate_weekly_report_text, SCHOOL_ALIAS, clear_cache, resolve_school_alias, get_display_name
+from match_report import generate_weekly_report_text, SCHOOL_ALIAS, resolve_school_alias, get_display_name
 
 # ============================================================
 # 配置
@@ -55,13 +54,11 @@ def get_user_school(user_id: str, default: str = None) -> str:
 
 def set_user_school(user_id: str, school: str) -> str:
     """绑定学校，返回显示名称"""
-    # 解析学校用于匹配
     match_name = resolve_school_alias(school)
-    # 获取显示名称
     display_name = get_display_name(match_name)
     
     bindings = load_bindings()
-    bindings[str(user_id)] = match_name  # 存储匹配名称（用于查询）
+    bindings[str(user_id)] = match_name
     save_bindings(bindings)
     return f"✅ 已绑定学校：{display_name}"
 
@@ -76,12 +73,11 @@ def clear_user_school(user_id: str) -> str:
 
 
 # ============================================================
-# 1. 改进的工具函数 - 提取参数（支持更多别名）
+# 1. 工具函数 - 提取参数
 # ============================================================
 
 def extract_school_keyword(text: str) -> Optional[str]:
     """提取学校关键词，支持别名映射"""
-    # 先移除战报相关关键词，避免误匹配
     cleaned = re.sub(r'生成|战报|战绩|排名|查询|看看|显示|多少|现在|当前|最新|最近|本周|本轮|上轮|上周', '', text)
     cleaned = re.sub(r'第[\d一二三四五六七八九十]+周', '', cleaned)
     cleaned = re.sub(r'第[\d、,，\-到]+轮', '', cleaned)
@@ -93,12 +89,10 @@ def extract_school_keyword(text: str) -> Optional[str]:
     if not cleaned:
         return None
     
-    # 先检查别名映射
     for alias, full_name in SCHOOL_ALIAS.items():
         if alias in cleaned or full_name in cleaned:
             return full_name
     
-    # 匹配学校名（2-4个中文字符，可能以大学/学院/大结尾）
     match = re.search(r'([\u4e00-\u9fa5]{2,4}(?:大学|学院|大)?)', cleaned)
     if match:
         school = match.group(1)
@@ -106,7 +100,6 @@ def extract_school_keyword(text: str) -> Optional[str]:
         if school not in invalid_words:
             return school
     
-    # 模糊匹配：2-4个中文字符
     match = re.search(r'([\u4e00-\u9fa5]{2,4})', cleaned)
     if match:
         school = match.group(1)
@@ -135,7 +128,6 @@ def extract_week_number(text: str) -> Optional[int]:
 def extract_round_numbers(text: str) -> Optional[List[int]]:
     chinese_map = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
     
-    # 1. 匹配 "第X轮" 格式（数字）
     match = re.search(r'第([\d、,，]+)轮', text)
     if match:
         parts = re.split(r'[、,，]', match.group(1))
@@ -143,24 +135,20 @@ def extract_round_numbers(text: str) -> Optional[List[int]]:
         if rounds:
             return rounds
     
-    # 2. 匹配 "第X-Y轮" 格式（数字范围）
     match = re.search(r'第(\d+)[-到](\d+)轮', text)
     if match:
         return list(range(int(match.group(1)), int(match.group(2)) + 1))
     
-    # 3. 匹配 "第X轮" 格式（单轮数字）
     match = re.search(r'第(\d+)轮', text)
     if match:
         return [int(match.group(1))]
     
-    # 4. 匹配 "第五轮" 格式（中文数字，没有"第"字）
     match = re.search(r'([一二三四五六七八九十]+)轮', text)
     if match:
         ch = match.group(1)
         if ch in chinese_map:
             return [chinese_map[ch]]
     
-    # 5. 匹配 "第五、六轮" 格式（中文数字组合）
     match = re.search(r'([一二三四五六七八九十]+)[、,，]([一二三四五六七八九十]+)轮', text)
     if match:
         ch1 = match.group(1)
@@ -168,7 +156,6 @@ def extract_round_numbers(text: str) -> Optional[List[int]]:
         if ch1 in chinese_map and ch2 in chinese_map:
             return [chinese_map[ch1], chinese_map[ch2]]
     
-    # 6. 匹配 "五六轮" 格式（连续中文数字）
     match = re.search(r'([一二三四五六七八九十]+)([一二三四五六七八九十]+)轮', text)
     if match:
         ch1 = match.group(1)
@@ -231,16 +218,12 @@ def call_llm(prompt: str) -> str:
 
 
 # ============================================================
-# 3. 改进的大模型解析
+# 3. 大模型解析
 # ============================================================
 
 def parse_with_llm(user_input: str, user_id: str = None) -> dict:
-    """
-    用大模型解析用户指令，返回结构化的参数
-    """
     bound_school = get_user_school(user_id, default="第二工业") if user_id else "第二工业"
     
-    # 构建别名列表供大模型参考
     alias_list = "\n".join([f"- {k} → {v}" for k, v in list(SCHOOL_ALIAS.items())[:30]])
     
     prompt = f"""
@@ -253,10 +236,9 @@ def parse_with_llm(user_input: str, user_id: str = None) -> dict:
 2. "绑定学校" - 用户想绑定学校
 3. "查看绑定" - 用户想查看绑定的学校
 4. "解绑学校" - 用户想解绑学校
-5. "清除缓存" - 用户想清除战报缓存
-6. "学校列表" - 用户想查看所有参赛学校
-7. "帮助" - 用户想查看帮助
-8. "闲聊" - 用户只是闲聊
+5. "学校列表" - 用户想查看所有参赛学校
+6. "帮助" - 用户想查看帮助
+7. "闲聊" - 用户只是闲聊
 
 如果是"生成战报"，请提取：
 - school: 学校名称（从用户输入中提取，支持别名），如果没提到则用 "{bound_school}"
@@ -272,7 +254,6 @@ def parse_with_llm(user_input: str, user_id: str = None) -> dict:
 {{"intent": "绑定学校", "school": "北大"}}
 {{"intent": "查看绑定"}}
 {{"intent": "解绑学校"}}
-{{"intent": "清除缓存"}}
 {{"intent": "学校列表"}}
 {{"intent": "帮助"}}
 {{"intent": "闲聊", "message": "你好啊"}}
@@ -294,7 +275,7 @@ def parse_with_llm(user_input: str, user_id: str = None) -> dict:
 
 
 # ============================================================
-# 4. 增强的帮助信息
+# 4. 帮助信息
 # ============================================================
 
 def get_help_text() -> str:
@@ -331,10 +312,6 @@ def get_help_text() -> str:
 • 生成第3周战报  → 第3周（第5、6轮）
 • 生成第1-4轮战报  → 累计战报
 
-**缓存管理：**
-• 清除缓存  ← 清除所有缓存
-• 清除缓存 二工大  ← 清除指定学校缓存
-
 **其他功能：**
 • 学校列表  ← 查看所有参赛学校
 
@@ -368,7 +345,6 @@ def get_help_text() -> str:
 # ============================================================
 
 def get_school_list() -> str:
-    """获取所有参赛学校列表（从 arena 数据中提取）"""
     try:
         from arena_fetcher import fetch_weekly_report_data, get_latest_completed_rounds
         rounds = get_latest_completed_rounds(2)
@@ -386,20 +362,15 @@ def get_school_list() -> str:
 
 
 # ============================================================
-# 6. 安全执行代码（返回列表，支持合并转发）
+# 6. 安全执行代码
 # ============================================================
 
 def safe_execute(code: str, globals_dict: dict = None):
-    """
-    安全执行代码并返回结果
-    返回值：如果是战报，返回列表；否则返回字符串
-    """
     if globals_dict is None:
         globals_dict = {}
     
     safe_globals = {
         "generate_weekly_report_text": generate_weekly_report_text,
-        "clear_cache": clear_cache,
         "datetime": datetime,
         "os": os,
         "json": json,
@@ -415,27 +386,16 @@ def safe_execute(code: str, globals_dict: dict = None):
     
     try:
         exec(code, safe_globals)
-        
-        # 关键：先获取 result 变量
         result = safe_globals.get('result', None)
-        
-        # 如果有打印输出，也捕获
         output = sys.stdout.getvalue()
         
-        # 如果 result 是列表，直接返回
         if isinstance(result, list):
             return result
-        
-        # 如果 result 是字符串，返回字符串
         if isinstance(result, str):
             return result
-        
-        # 如果有打印输出，返回输出
         if output.strip():
             return output.strip()
-        
         return "执行完成（无输出）"
-            
     except Exception as e:
         return f"❌ 代码执行出错：{str(e)}"
     finally:
@@ -443,13 +403,10 @@ def safe_execute(code: str, globals_dict: dict = None):
 
 
 # ============================================================
-# 7. 生成代码（支持更多参数）
+# 7. 生成代码
 # ============================================================
 
 def generate_code_with_llm(user_input: str, user_id: str = None) -> str:
-    """
-    生成调用战报函数的代码
-    """
     school = extract_school_keyword(user_input)
     
     if school is None:
@@ -461,7 +418,6 @@ def generate_code_with_llm(user_input: str, user_id: str = None) -> str:
     week = extract_week_number(user_input)
     rounds = extract_round_numbers(user_input)
     
-    # 构建代码模板 - 赋值给 result，不 print
     if week is not None:
         return f"""
 result = generate_weekly_report_text(school_keyword="{school}", week_number={week})
@@ -471,7 +427,6 @@ result = generate_weekly_report_text(school_keyword="{school}", week_number={wee
 result = generate_weekly_report_text(school_keyword="{school}", round_numbers={rounds})
 """
     else:
-        # 调用大模型解析
         print("--- 调用大模型解析指令 ---")
         
         prompt = f"""
@@ -501,12 +456,11 @@ result = generate_weekly_report_text(school_keyword="{school}")
         code_match = re.search(r'```python\n(.*?)```', code, re.DOTALL)
         if code_match:
             return code_match.group(1).strip()
-        
         return code.strip()
 
 
 # ============================================================
-# 8. 核心函数（增强版）
+# 8. 核心函数
 # ============================================================
 
 def run_agent(user_input: str, user_id: str = None):
@@ -516,15 +470,6 @@ def run_agent(user_input: str, user_id: str = None):
     user_input_clean = user_input.strip()
     
     # ---- 1. 本地快速匹配 ----
-    
-    # 清除缓存
-    if "清除缓存" in user_input_clean or "清缓存" in user_input_clean:
-        match = re.search(r'清除缓存\s*([\u4e00-\u9fa5]{2,}?)', user_input_clean)
-        if match:
-            school = match.group(1).strip()
-            if school:
-                return clear_cache(school)
-        return clear_cache()
     
     # 学校列表
     if "学校列表" in user_input_clean or "参赛学校" in user_input_clean:
@@ -573,11 +518,9 @@ def run_agent(user_input: str, user_id: str = None):
         if isinstance(result, list):
             print(f"📤 返回列表，长度：{len(result)}")
             return result
-        
         if isinstance(result, str):
             print(f"📤 返回字符串，长度：{len(result)}")
             return result
-        
         print(f"📤 返回其他类型：{result}")
         return str(result) if result else "执行完成（无输出）"
     
@@ -614,7 +557,6 @@ if __name__ == "__main__":
         "生成第2周战报",
         "解绑学校",
         "学校列表",
-        "清除缓存",
     ]
     
     test_user_id = "1761473633"
