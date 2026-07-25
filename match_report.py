@@ -4,7 +4,7 @@ import time
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
-from arena_fetcher import fetch_weekly_report_data, EAST_RANK_BONUS, SOUTH_RANK_BONUS, get_rounds_for_week, get_latest_completed_rounds
+from arena_fetcher import fetch_weekly_report_data, EAST_RANK_BONUS, SOUTH_RANK_BONUS, get_rounds_for_week, get_latest_completed_rounds, get_latest_round
 
 
 def get_prev_rounds(current_rounds: List[int]) -> List[int]:
@@ -337,6 +337,7 @@ def clear_cache(school_keyword: str = None) -> str:
     
     return f"✅ 已清除 {school_keyword} 的战报缓存（共 {len(to_delete)} 条）"
 
+
 def generate_weekly_report(
     school_keyword: str = "第二工业",
     week_number: Optional[int] = None,
@@ -359,7 +360,24 @@ def generate_weekly_report(
     elif week_number is not None:
         target_rounds = get_rounds_for_week(week_number)
     else:
-        target_rounds = get_latest_completed_rounds(2)
+        # 根据最新轮次动态决定
+        try:
+            latest_round = get_latest_round()
+            
+            if latest_round == 0:
+                # 没有数据，使用默认值
+                target_rounds = get_latest_completed_rounds(2)
+            elif latest_round % 2 == 1:
+                # 单数轮：只生成最新一轮
+                target_rounds = [latest_round]
+                print(f"📌 检测到最新轮次为单数轮({latest_round})，生成单轮战报", flush=True)
+            else:
+                # 双数轮：生成最新一周（当前轮和前一轮）
+                target_rounds = [latest_round - 1, latest_round]
+                print(f"📌 检测到最新轮次为双数轮({latest_round})，生成周战报({latest_round - 1}, {latest_round})", flush=True)
+        except Exception as e:
+            print(f"⚠️ 获取最新轮次失败: {e}，使用默认值", flush=True)
+            target_rounds = get_latest_completed_rounds(2)
     
     print(f"🔍 [generate_weekly_report] target_rounds={target_rounds}", flush=True)
     
