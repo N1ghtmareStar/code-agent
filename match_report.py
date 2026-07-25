@@ -323,12 +323,19 @@ def clear_cache(school_keyword: str = None) -> str:
         _report_cache.clear()
         return "✅ 已清除所有战报缓存"
     
-    # 清除匹配的缓存
-    to_delete = [k for k in _report_cache.keys() if k.startswith(school_keyword)]
+    # 解析学校名
+    resolved = resolve_school_alias(school_keyword)
+    
+    # 清除匹配的缓存（同时匹配原始关键词和解析后的名称）
+    to_delete = []
+    for key in _report_cache.keys():
+        if key.startswith(school_keyword) or key.startswith(resolved):
+            to_delete.append(key)
+    
     for key in to_delete:
         del _report_cache[key]
+    
     return f"✅ 已清除 {school_keyword} 的战报缓存（共 {len(to_delete)} 条）"
-
 
 def generate_weekly_report(
     school_keyword: str = "第二工业",
