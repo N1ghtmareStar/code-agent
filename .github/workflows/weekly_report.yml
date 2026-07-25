@@ -8,6 +8,16 @@ on:
 jobs:
   generate_report:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - school_alias: "二工大"
+            school_name: "上海第二工业大学"
+            recipient: ${{ secrets.MAIL_RECIPIENT }}
+          - school_alias: "复旦"
+            school_name: "复旦大学"
+            recipient: ${{ secrets.FUDAN_RECIPIENT }}
     
     steps:
       - name: Call Wasmer Agent to generate report
@@ -15,7 +25,7 @@ jobs:
         run: |
           RESPONSE=$(curl -s -w "%{http_code}" -X POST https://code-agent.wasmer.app/webhook \
             -H "Content-Type: application/json" \
-            -d '{"post_type":"message","message":"生成二工大战报"}')
+            -d '{"post_type":"message","message":"生成${{ matrix.school_alias }}战报"}')
           
           HTTP_CODE="${RESPONSE: -3}"
           BODY="${RESPONSE%???}"
@@ -42,7 +52,9 @@ jobs:
         env:
           BOT_MAIL_USERNAME: ${{ secrets.BOT_MAIL_USERNAME }}
           BOT_MAIL_PASSWORD: ${{ secrets.BOT_MAIL_PASSWORD }}
-          MAIL_RECIPIENT: ${{ secrets.MAIL_RECIPIENT }}
+          MAIL_RECIPIENT: ${{ matrix.recipient }}
+          SCHOOL_NAME: ${{ matrix.school_name }}
+          SCHOOL_ALIAS: ${{ matrix.school_alias }}
           WEEK_NUM: ${{ env.WEEK_NUM }}
         run: |
           python3 << 'EOF'
@@ -59,13 +71,15 @@ jobs:
           sender = os.environ['BOT_MAIL_USERNAME']
           password = os.environ['BOT_MAIL_PASSWORD']
           receiver = os.environ['MAIL_RECIPIENT']
+          school_name = os.environ.get('SCHOOL_NAME', '上海第二工业大学')
+          school_alias = os.environ.get('SCHOOL_ALIAS', '二工大')
           week_num = os.environ.get('WEEK_NUM', '最新')
           
           beijing_time = datetime.utcnow() + timedelta(hours=8)
           date_str = beijing_time.strftime('%Y年%m月%d日 %H:%M:%S')
           
-          subject = f"📊 上海第二工业大学 - 第{week_num}周战报 {beijing_time.strftime('%Y年%m月%d日')}"
-          body_title = f"📊 上海第二工业大学 - 第{week_num}周战报"
+          subject = f"📊 {school_name} - 第{week_num}周战报 {beijing_time.strftime('%Y年%m月%d日')}"
+          body_title = f"📊 {school_name} - 第{week_num}周战报"
           
           body = f"""
           {body_title}
@@ -92,8 +106,8 @@ jobs:
               with smtplib.SMTP_SSL("smtp.qq.com", 465, context=context) as server:
                   server.login(sender, password)
                   server.sendmail(sender, [receiver], msg.as_string())
-              print("✅ 邮件发送成功！")
+              print(f"✅ 邮件发送成功！{school_name} -> {receiver}")
           except Exception as e:
-              print(f"❌ 邮件发送失败：{e}")
+              print(f"❌ 邮件发送失败：{school_name} -> {receiver}，错误：{e}")
               exit(1)
           EOF
