@@ -133,18 +133,49 @@ def extract_week_number(text: str) -> Optional[int]:
 
 
 def extract_round_numbers(text: str) -> Optional[List[int]]:
+    chinese_map = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+    
+    # 1. 匹配 "第X轮" 格式（数字）
     match = re.search(r'第([\d、,，]+)轮', text)
     if match:
         parts = re.split(r'[、,，]', match.group(1))
         rounds = [int(p.strip()) for p in parts if p.strip().isdigit()]
         if rounds:
             return rounds
+    
+    # 2. 匹配 "第X-Y轮" 格式（数字范围）
     match = re.search(r'第(\d+)[-到](\d+)轮', text)
     if match:
         return list(range(int(match.group(1)), int(match.group(2)) + 1))
+    
+    # 3. 匹配 "第X轮" 格式（单轮数字）
     match = re.search(r'第(\d+)轮', text)
     if match:
         return [int(match.group(1))]
+    
+    # 4. 匹配 "第五轮" 格式（中文数字，没有"第"字）
+    match = re.search(r'([一二三四五六七八九十]+)轮', text)
+    if match:
+        ch = match.group(1)
+        if ch in chinese_map:
+            return [chinese_map[ch]]
+    
+    # 5. 匹配 "第五、六轮" 格式（中文数字组合）
+    match = re.search(r'([一二三四五六七八九十]+)[、,，]([一二三四五六七八九十]+)轮', text)
+    if match:
+        ch1 = match.group(1)
+        ch2 = match.group(2)
+        if ch1 in chinese_map and ch2 in chinese_map:
+            return [chinese_map[ch1], chinese_map[ch2]]
+    
+    # 6. 匹配 "五六轮" 格式（连续中文数字）
+    match = re.search(r'([一二三四五六七八九十]+)([一二三四五六七八九十]+)轮', text)
+    if match:
+        ch1 = match.group(1)
+        ch2 = match.group(2)
+        if ch1 in chinese_map and ch2 in chinese_map:
+            return [chinese_map[ch1], chinese_map[ch2]]
+    
     return None
 
 
