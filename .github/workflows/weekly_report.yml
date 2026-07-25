@@ -38,10 +38,24 @@ jobs:
             REPORT_CONTENT="$BODY"
           fi
           
-          WEEK_NUM=$(echo "$REPORT_CONTENT" | grep -oP '第\d+周' | head -1 | grep -oP '\d+' || echo "最新")
+          # 🔥 提取周数或轮数
+          WEEK_NUM=$(echo "$REPORT_CONTENT" | grep -oP '第\d+周' | head -1 | grep -oP '\d+' || echo "")
+          ROUND_NUM=$(echo "$REPORT_CONTENT" | grep -oP '第\d+轮' | head -1 | grep -oP '\d+' || echo "")
+          
+          if [ -n "$WEEK_NUM" ]; then
+            NUM="$WEEK_NUM"
+            TYPE="周"
+          elif [ -n "$ROUND_NUM" ]; then
+            NUM="$ROUND_NUM"
+            TYPE="轮"
+          else
+            NUM="最新"
+            TYPE=""
+          fi
           
           echo "$REPORT_CONTENT" > report.txt
-          echo "WEEK_NUM=$WEEK_NUM" >> $GITHUB_ENV
+          echo "NUM=$NUM" >> $GITHUB_ENV
+          echo "TYPE=$TYPE" >> $GITHUB_ENV
           
           if [ "$HTTP_CODE" -ne 200 ]; then
             echo "Error: HTTP $HTTP_CODE"
@@ -55,7 +69,8 @@ jobs:
           MAIL_RECIPIENT: ${{ secrets[matrix.recipient_secret] }}
           SCHOOL_NAME: ${{ matrix.school_name }}
           SCHOOL_ALIAS: ${{ matrix.school_alias }}
-          WEEK_NUM: ${{ env.WEEK_NUM }}
+          NUM: ${{ env.NUM }}
+          TYPE: ${{ env.TYPE }}
         run: |
           python3 << 'EOF'
           import smtplib
@@ -73,13 +88,20 @@ jobs:
           receiver = os.environ['MAIL_RECIPIENT']
           school_name = os.environ.get('SCHOOL_NAME', '上海第二工业大学')
           school_alias = os.environ.get('SCHOOL_ALIAS', '二工大')
-          week_num = os.environ.get('WEEK_NUM', '最新')
+          num = os.environ.get('NUM', '最新')
+          type_suffix = os.environ.get('TYPE', '')
           
           beijing_time = datetime.utcnow() + timedelta(hours=8)
           date_str = beijing_time.strftime('%Y年%m月%d日 %H:%M:%S')
           
-          subject = f"📊 {school_name} - 第{week_num}周战报 {beijing_time.strftime('%Y年%m月%d日')}"
-          body_title = f"📊 {school_name} - 第{week_num}周战报"
+          # 🔥 生成标题：如果有类型则显示，否则显示"最新"
+          if num != '最新' and type_suffix:
+              title_suffix = f"第{num}{type_suffix}战报"
+          else:
+              title_suffix = "最新战报"
+          
+          subject = f"📊 {school_name} - {title_suffix} {beijing_time.strftime('%Y年%m月%d日')}"
+          body_title = f"📊 {school_name} - {title_suffix}"
           
           body = f"""
           {body_title}
